@@ -211,6 +211,24 @@ def catalog():
                                   modified_ns=(COMFY / 'models' / name).stat().st_mtime_ns)
                              for name in qwen_files if (COMFY / 'models' / name).is_file()],
                       reason='' if ready else 'ComfyUI model dosyaları eksik.'))
+    wan22_files = [
+        'diffusion_models/Wan2_2-TI2V-5B_fp8_e4m3fn_scaled_KJ.safetensors',
+        'loras/Wan2_2_5B_FastWanFullAttn_lora_rank_128_bf16.safetensors',
+        'text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors',
+        'vae/wan2.2_vae.safetensors',
+    ]
+    wan22_ready = all((COMFY / 'models' / name).is_file() for name in wan22_files)
+    items.append(dict(
+        id='wan22-ti2v-5b',
+        kind='video',
+        name='Wan 2.2 TI2V-5B FastWan FP8 (Hızlı · Apache-2.0)',
+        ready=wan22_ready,
+        capabilities=['img2vid', '6-step-fast'],
+        files=[dict(name=name, bytes=(COMFY / 'models' / name).stat().st_size,
+                    modified_ns=(COMFY / 'models' / name).stat().st_mtime_ns)
+               for name in wan22_files if (COMFY / 'models' / name).is_file()],
+        reason='' if wan22_ready else 'Wan 2.2 TI2V-5B FastWan dosyaları indiriliyor veya eksik.',
+    ))
     ltxv_files = [
         'checkpoints/ltxv-2b-0.9.8-distilled-fp8.safetensors',
         'text_encoders/t5xxl_fp8_e4m3fn_scaled.safetensors',

@@ -444,9 +444,10 @@ def router(data_root, owner_id=None):
         await owner(request)
         ep_count = max(1, min(24, episodes))
         sc_count = max(1, min(20, scenes))
-        img_sec = 32 if image == 'flux2-klein-4b' else 260
-        vid_sec = 80 if video == 'ltxv-distilled' else (5 if video == 'still-motion' else 290)
-        per_ep_sec = sc_count * (2 * img_sec + vid_sec + 4) + 25
+        img_sec = 24 if image == 'flux2-klein-4b' else 240
+        vid_sec = 75 if video in ('wan22-ti2v-5b', 'ltxv-distilled') else (5 if video == 'still-motion' else 195)
+        frames_per_scene = 1 if video == 'wan22-ti2v-5b' else 2
+        per_ep_sec = sc_count * (frames_per_scene * img_sec + vid_sec + 4) + 25
         total_sec = ep_count * per_ep_sec
         est_mb = round(ep_count * sc_count * (14 if video != 'still-motion' else 3) + ep_count * 18)
         return {

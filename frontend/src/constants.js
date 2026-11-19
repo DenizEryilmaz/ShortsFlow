@@ -111,9 +111,10 @@ export const ASPECT_RATIOS = {
 };
 
 export const QUALITY_PROFILES = [
-  { id: 'fast', title: 'Hızlı (Taslak)', desc: 'FLUX.2 4B + LTX-Video · ~2–3 dk/sahne', image: 'flux2-klein-4b', video: 'ltxv-distilled' },
-  { id: 'balanced', title: 'Orta · Dengeli', desc: 'FLUX.2 4B + FreeVideo · ~5 dk/sahne', image: 'flux2-klein-4b', video: 'freevideo-h3', recommended: true },
-  { id: 'high', title: 'Yüksek · Sinematik', desc: 'Qwen 2.1 + FreeVideo · ~14 dk/sahne', image: 'qwen-image-21', video: 'freevideo-h3' },
+  { id: 'fast', title: 'Hızlı (Taslak)', desc: 'FLUX.2 4B + LTX-Video · ~1,5–2 dk/sahne', image: 'flux2-klein-4b', video: 'ltxv-distilled' },
+  { id: 'wan22', title: 'Hızlı+ · Wan 2.2 5B', desc: 'FLUX.2 4B + Wan 2.2 FastWan · ~1,5–2 dk/sahne · Apache-2.0', image: 'flux2-klein-4b', video: 'wan22-ti2v-5b', recommended: true },
+  { id: 'balanced', title: 'Orta · MiniMax H3', desc: 'FLUX.2 4B + FreeVideo (Step-Cache) · ~3,5 dk/sahne', image: 'flux2-klein-4b', video: 'freevideo-h3' },
+  { id: 'high', title: 'Yüksek · Sinematik', desc: 'Qwen 2.1 + FreeVideo · ~12 dk/sahne', image: 'qwen-image-21', video: 'freevideo-h3' },
 ];
 
 export const TRANSITIONS = {
@@ -177,7 +178,10 @@ export function defaultSettings(models = [], lang = 'tr') {
   return {
     script: first('script') || 'qwen3-vl:8b-instruct',
     image: models.find(m => m.id === 'flux2-klein-4b' && m.ready)?.id || first('image') || 'qwen-image-21',
-    video: models.find(m => m.id === 'freevideo-h3' && m.ready)?.id || first('video') || 'ltxv-distilled',
+    video: models.find(m => m.id === 'wan22-ti2v-5b' && m.ready)?.id
+      || models.find(m => m.id === 'freevideo-h3' && m.ready)?.id
+      || first('video')
+      || 'ltxv-distilled',
     voice: langVoice || first('voice') || 'tr_TR-dfki-medium',
     renderer: 'ffmpeg',
     language: lang,

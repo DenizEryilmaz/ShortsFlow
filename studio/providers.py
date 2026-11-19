@@ -491,7 +491,7 @@ def _build_ltxv_graph(prompt, negative, settings, first_name, last_name, length,
     return graph, saved
 
 
-def ltxv_video(prompt, first, last, duration, output, settings, on_progress=None, cancel_check=None):
+def ltxv_video(prompt, first, last, duration, output, settings, on_progress=None, cancel_check=None, *, unload_before=True):
     """Fast 8-step local Image-to-Video using ComfyUI native LTX-Video 0.9.8 Distilled FP8."""
     import os
     from PIL import Image, ImageOps
@@ -514,10 +514,11 @@ def ltxv_video(prompt, first, last, duration, output, settings, on_progress=None
     length = ((raw_frames - 1 + 7) // 8) * 8 + 1
 
     # Free previously loaded image models (e.g. FLUX.2 / Qwen) to prevent RAM pressure on 16GB systems
-    try:
-        comfy('free', {'unload_models': True, 'free_memory': True})
-    except Exception:
-        pass
+    if unload_before:
+        try:
+            comfy('free', {'unload_models': True, 'free_memory': True})
+        except Exception:
+            pass
 
     preferred_device = os.getenv('STUDIO_CLIP_DEVICE', 'default').strip() or 'default'
     graph, saved = _build_ltxv_graph(prompt, '', settings, first_name, last_name, length, clip_device=preferred_device)
@@ -550,11 +551,123 @@ def ltxv_video(prompt, first, last, duration, output, settings, on_progress=None
     shutil.copyfile(source, output)
 
 
-def freevideo(prompt, first, last, references, duration, output, settings, on_progress=None, cancel_check=None):
+def _build_wan22_ti2v_graph(prompt, negative, settings, first_name, length, clip_device='default'):
+    graph = {}
+
+    def add(kind, **inputs):
+        node = str(len(graph) + 1)
+        graph[node] = {'class_type': kind, 'inputs': inputs}
+        return node
+
+    w = max(256, (int(settings['width']) // 32) * 32)
+    h = max(256, (int(settings['height']) // 32) * 32)
+    unet = add('UNETLoader', unet_name='Wan2_2-TI2V-5B_fp8_e4m3fn_scaled_KJ.safetensors', weight_dtype='default')
+    lora = add(
+        'LoraLoaderModelOnly',
+        model=[unet, 0],
+        lora_name='Wan2_2_5B_FastWanFullAttn_lora_rank_128_bf16.safetensors',
+        strength_model=1.0,
+    )
+    model = add('ModelSamplingSD3', model=[lora, 0], shift=8.0)
+    clip = add('CLIPLoader', clip_name='umt5_xxl_fp8_e4m3fn_scaled.safetensors', type='wan', device=clip_device)
+    vae = add('VAELoader', vae_name='wan2.2_vae.safetensors')
+    pos = add('CLIPTextEncode', clip=[clip, 0], text=prompt)
+    neg = add(
+        'CLIPTextEncode',
+        clip=[clip, 0],
+        text=negative or 'blurry, distorted, deformed, low quality, worst quality, static, watermark, text',
+    )
+    first_img = add('LoadImage', image=first_name)
+    latent = add(
+        'Wan22ImageToVideoLatent',
+        vae=[vae, 0],
+        width=w,
+        height=h,
+        length=length,
+        batch_size=1,
+        start_image=[first_img, 0],
+    )
+    sampled = add(
+        'KSampler',
+        model=[model, 0],
+        seed=int(settings['seed']),
+        steps=6,
+        cfg=1.0,
+        sampler_name='uni_pc',
+        scheduler='simple',
+        positive=[pos, 0],
+        negative=[neg, 0],
+        latent_image=[latent, 0],
+        denoise=1.0,
+    )
+    decoded = add('VAEDecode', samples=[sampled, 0], vae=[vae, 0])
+    vid = add('CreateVideo', images=[decoded, 0], fps=24.0)
+    saved = add('SaveVideo', video=[vid, 0], filename_prefix=f'studio/{uuid.uuid4().hex}', format='mp4', codec='h264')
+    return graph, saved
+
+
+def wan22_ti2v_video(prompt, first, duration, output, settings, on_progress=None, cancel_check=None, *, unload_before=True):
+    """Fast 6-step Apache-2.0 Image-to-Video using ComfyUI native Wan 2.2 TI2V-5B FP8 + FastWan LoRA."""
+    import os
+    from PIL import Image, ImageOps
+
+    output = Path(output)
+    w = max(256, (int(settings['width']) // 32) * 32)
+    h = max(256, (int(settings['height']) // 32) * 32)
+    norm = output.with_name(f'{output.stem}-wan22-first.png')
+    with Image.open(first) as original:
+        fitted = ImageOps.fit(original.convert('RGB'), (w, h))
+        fitted.save(norm)
+    first_name = upload(norm)
+
+    # Wan 2.2 TI2V-5B 24fps requires length = 4*n + 1
+    raw_frames = max(25, round(float(duration) * 24))
+    length = ((raw_frames - 1 + 3) // 4) * 4 + 1
+
+    if unload_before:
+        try:
+            comfy('free', {'unload_models': True, 'free_memory': True})
+        except Exception:
+            pass
+
+    preferred_device = os.getenv('STUDIO_CLIP_DEVICE', 'default').strip() or 'default'
+    graph, saved = _build_wan22_ti2v_graph(prompt, '', settings, first_name, length, clip_device=preferred_device)
+    write_json_atomic(str(output.with_suffix('.wan22.workflow.json')), graph, ensure_ascii=False, indent=2)
+    response = _submit_comfy_graph(graph, on_progress, cancel_check)
+
+    if response['status']['status_str'] != 'success' and preferred_device != 'cpu':
+        status_blob = json.dumps(response['status'], ensure_ascii=False).lower()
+        if any(token in status_blob for token in ('out of memory', 'cuda', 'oom', 'alloc', 'vram')):
+            if on_progress:
+                on_progress('VRAM yetersiz · Wan 2.2 metin kodlayıcı CPU moduna alınıyor…')
+            try:
+                comfy('free', {'unload_models': True, 'free_memory': True})
+            except Exception:
+                pass
+            graph, saved = _build_wan22_ti2v_graph(prompt, '', settings, first_name, length, clip_device='cpu')
+            write_json_atomic(str(output.with_suffix('.wan22.workflow.json')), graph, ensure_ascii=False, indent=2)
+            response = _submit_comfy_graph(graph, on_progress, cancel_check)
+
+    if response['status']['status_str'] != 'success':
+        raise RuntimeError(json.dumps(response['status'], ensure_ascii=False)[-1800:])
+    node_out = response['outputs'].get(saved) or {}
+    items = node_out.get('videos') or node_out.get('images') or node_out.get('gifs') or []
+    if not items:
+        raise RuntimeError(f'Wan 2.2 video çıktı dosyası bulunamadı: {json.dumps(node_out, ensure_ascii=False)}')
+    row = items[0]
+    source = (COMFY / 'output' / row.get('subfolder', '') / row['filename']).resolve()
+    if not source.is_relative_to(COMFY / 'output') or not source.is_file():
+        raise ValueError('Geçersiz ComfyUI video çıktı yolu.')
+    shutil.copyfile(source, output)
+
+
+def freevideo(prompt, first, last, references, duration, output, settings, on_progress=None, cancel_check=None, *, unload_before=True):
+    import os
     queue = comfy('queue')
     if queue.get('queue_running') or queue.get('queue_pending'):
         raise RuntimeError('ComfyUI başka bir üretim yapıyor. Bu sahnenin görselleri saklandı. İş bitince yeniden deneyin.')
-    comfy('free', {'unload_models': True, 'free_memory': True})
+    if unload_before:
+        comfy('free', {'unload_models': True, 'free_memory': True})
     media = {'version': 1}
     if first:
         media['first'] = str(first.resolve())
@@ -568,13 +681,17 @@ def freevideo(prompt, first, last, references, duration, output, settings, on_pr
     write_json_atomic(str(media_file), media, ensure_ascii=False, indent=2)
     prompt_file.write_text(prompt, encoding='utf-8')
     frames = max(39, round(duration * 24))
+    cmd = [
+        sys.executable, '-m', 'freevideo_engine.managed', '--root', FREEVIDEO, 'generate',
+        '--prompt-file', prompt_file, '--media', media_file, '--out', output,
+        '--width', settings['width'], '--height', settings['height'], '--frames', frames,
+        '--seed', settings['seed'], '--no-two-pass', '--ram-reserve-gib', settings['ram_reserve_gib'],
+    ]
+    step_cache = os.getenv('STUDIO_FREEVIDEO_STEP_CACHE', 'easycache-av').strip().lower()
+    if step_cache in ('easycache-av', 'fbcache'):
+        cmd.extend(['--step-cache', step_cache])
     run(
-        [
-            sys.executable, '-m', 'freevideo_engine.managed', '--root', FREEVIDEO, 'generate',
-            '--prompt-file', prompt_file, '--media', media_file, '--out', output,
-            '--width', settings['width'], '--height', settings['height'], '--frames', frames,
-            '--seed', settings['seed'], '--no-two-pass', '--ram-reserve-gib', settings['ram_reserve_gib'],
-        ],
+        cmd,
         cwd=FREEVIDEO,
         timeout=7200,
         log_path=output.with_suffix('.log'),

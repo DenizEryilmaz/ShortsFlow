@@ -636,7 +636,8 @@ def _produce_scene_last(store, job, project, scene, index, first, stem, assets, 
 
 
 def _produce_scene_clip(
-    store, job, project, scene, index, first, last, motion_prompt, references, stem, assets, output, snapshot, log, *, force=False
+    store, job, project, scene, index, first, last, motion_prompt, references, stem, assets, output, snapshot, log,
+    *, force=False, unload_before=True,
 ):
     settings = project['settings']
     duration = scene['duration']
@@ -651,9 +652,32 @@ def _produce_scene_clip(
             pass
     seed = _scene_seed(settings, scene, index)
 
+    def _attach_narration(raw_video):
+        audio_src = None
+        if scene.get('audio_asset'):
+            try:
+                audio_src = resolve_asset(store, job['owner'], scene['audio_asset'])
+            except ValueError:
+                audio_src = None
+        _mux_clip_audio(raw_video, video, audio_src, log_path=output / 'render.log')
+        raw_video.unlink(missing_ok=True)
+
     def generate_video():
         log(f'Sahne {index} · hareket klibi üretiliyor')
-        if settings['video'] == 'ltxv-distilled':
+        if settings['video'] == 'wan22-ti2v-5b':
+            raw_video = assets / f'{stem}-raw.mp4'
+            providers.wan22_ti2v_video(
+                motion_prompt,
+                first,
+                duration,
+                raw_video,
+                {**settings, 'seed': seed},
+                on_progress=lambda msg: log(f'Sahne {index} · Wan 2.2 · {msg}'),
+                cancel_check=lambda: store.is_cancelled(job['id']),
+                unload_before=unload_before,
+            )
+            _attach_narration(raw_video)
+        elif settings['video'] == 'ltxv-distilled':
             raw_video = assets / f'{stem}-raw.mp4'
             providers.ltxv_video(
                 motion_prompt,
@@ -664,15 +688,9 @@ def _produce_scene_clip(
                 {**settings, 'seed': seed},
                 on_progress=lambda msg: log(f'Sahne {index} · LTX-Video · {msg}'),
                 cancel_check=lambda: store.is_cancelled(job['id']),
+                unload_before=unload_before,
             )
-            audio_src = None
-            if scene.get('audio_asset'):
-                try:
-                    audio_src = resolve_asset(store, job['owner'], scene['audio_asset'])
-                except ValueError:
-                    audio_src = None
-            _mux_clip_audio(raw_video, video, audio_src, log_path=output / 'render.log')
-            raw_video.unlink(missing_ok=True)
+            _attach_narration(raw_video)
         elif settings['video'] == 'freevideo-h3':
             raw_video = assets / f'{stem}-raw.mp4'
             providers.freevideo(
@@ -685,17 +703,11 @@ def _produce_scene_clip(
                 {**settings, 'seed': seed},
                 on_progress=lambda msg: log(f'Sahne {index} · {msg}'),
                 cancel_check=lambda: store.is_cancelled(job['id']),
+                unload_before=unload_before,
             )
-            audio_src = None
-            if scene.get('audio_asset'):
-                try:
-                    audio_src = resolve_asset(store, job['owner'], scene['audio_asset'])
-                except ValueError:
-                    audio_src = None
             # Strip FreeVideo's model-generated audio track (which can speak the motion prompt)
             # and attach the scene's real Piper narration if available.
-            _mux_clip_audio(raw_video, video, audio_src, log_path=output / 'render.log')
-            raw_video.unlink(missing_ok=True)
+            _attach_narration(raw_video)
         else:
             frames = round(duration * 24)
             w, h = settings['width'], settings['height']
@@ -1003,13 +1015,18 @@ def render(store, job, output, log):
     assets.mkdir(exist_ok=True)
     characters = {row['id']: row for row in snapshot['characters']}
     voices = {}
-    timings = []
-    for index, scene in enumerate(script['scenes'], 1):
+    scenes = script['scenes']
+    total = len(scenes)
+
+    # Phase 1: Produce all scene audio & prepare/translate all prompts first (LLM loads/unloads once)
+    prepared = []
+    for index, scene in enumerate(scenes, 1):
         stem = f'scene-{index:02}'
-        log(f"Sahne {index}/{len(script['scenes'])} · {scene['title']}")
-        _, spoken, voice_id, _ = _produce_scene_audio(
+        log(f"Faz 1/3 · Ses & prompt · Sahne {index}/{total} · {scene['title']}")
+        _, spoken, voice_id, audio_id = _produce_scene_audio(
             store, job, project, scene, characters, voices, stem, assets, snapshot, log
         )
+        scene['audio_asset'] = audio_id
         prompt, motion_prompt, references, scene = _scene_prompts(store, project, scene, characters, log=log)
         write_json_atomic(
             str(output / f'{stem}.prompts.json'),
@@ -1024,21 +1041,51 @@ def render(store, job, output, log):
             ensure_ascii=False,
             indent=2,
         )
+        prepared.append({
+            'index': index,
+            'stem': stem,
+            'scene': scene,
+            'spoken': spoken,
+            'prompt': prompt,
+            'motion_prompt': motion_prompt,
+            'references': references,
+            'first': None,
+            'last': None,
+        })
+
+    # Phase 2: Generate all First & Last keyframes back-to-back while the image model stays hot in VRAM
+    use_end_frame = settings.get('video') != 'wan22-ti2v-5b'
+    for item in prepared:
+        index, stem, scene = item['index'], item['stem'], item['scene']
+        log(f"Faz 2/3 · Kareler · Sahne {index}/{total} · {scene['title']}")
         first, _ = _produce_scene_first(
-            store, job, project, scene, index, prompt, references, stem, assets, snapshot, log
+            store, job, project, scene, index, item['prompt'], item['references'], stem, assets, snapshot, log
         )
-        last, _ = _produce_scene_last(
-            store, job, project, scene, index, first, stem, assets, snapshot, log
-        )
+        item['first'] = first
+        if use_end_frame:
+            last, _ = _produce_scene_last(
+                store, job, project, scene, index, first, stem, assets, snapshot, log
+            )
+            item['last'] = last
+
+    # Phase 3: Generate all video clips back-to-back (evict image model once before first clip, then stay hot)
+    timings = []
+    evicted_image_model = False
+    for item in prepared:
+        index, stem, scene = item['index'], item['stem'], item['scene']
+        log(f"Faz 3/3 · Video klip · Sahne {index}/{total} · {scene['title']}")
+        should_unload = not evicted_image_model
         video, _ = _produce_scene_clip(
-            store, job, project, scene, index, first, last, motion_prompt, references,
-            stem, assets, output, snapshot, log
+            store, job, project, scene, index, item['first'], item['last'], item['motion_prompt'],
+            item['references'], stem, assets, output, snapshot, log, unload_before=should_unload,
         )
+        if should_unload:
+            evicted_image_model = True
         timings.append(
             dict(
                 stem=stem,
                 duration=scene['duration'],
-                spoken=spoken,
+                spoken=item['spoken'],
                 narration=scene['narration'],
                 caption=scene['caption'],
                 source_duration=providers.movie_duration(video),
