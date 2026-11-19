@@ -664,20 +664,7 @@ def _produce_scene_clip(
 
     def generate_video():
         log(f'Sahne {index} · hareket klibi üretiliyor')
-        if settings['video'] == 'wan22-ti2v-5b':
-            raw_video = assets / f'{stem}-raw.mp4'
-            providers.wan22_ti2v_video(
-                motion_prompt,
-                first,
-                duration,
-                raw_video,
-                {**settings, 'seed': seed},
-                on_progress=lambda msg: log(f'Sahne {index} · Wan 2.2 · {msg}'),
-                cancel_check=lambda: store.is_cancelled(job['id']),
-                unload_before=unload_before,
-            )
-            _attach_narration(raw_video)
-        elif settings['video'] == 'ltxv-distilled':
+        if settings['video'] == 'ltxv-distilled':
             raw_video = assets / f'{stem}-raw.mp4'
             providers.ltxv_video(
                 motion_prompt,
@@ -1054,7 +1041,6 @@ def render(store, job, output, log):
         })
 
     # Phase 2: Generate all First & Last keyframes back-to-back while the image model stays hot in VRAM
-    use_end_frame = settings.get('video') != 'wan22-ti2v-5b'
     for item in prepared:
         index, stem, scene = item['index'], item['stem'], item['scene']
         log(f"Faz 2/3 · Kareler · Sahne {index}/{total} · {scene['title']}")
@@ -1062,11 +1048,10 @@ def render(store, job, output, log):
             store, job, project, scene, index, item['prompt'], item['references'], stem, assets, snapshot, log
         )
         item['first'] = first
-        if use_end_frame:
-            last, _ = _produce_scene_last(
-                store, job, project, scene, index, first, stem, assets, snapshot, log
-            )
-            item['last'] = last
+        last, _ = _produce_scene_last(
+            store, job, project, scene, index, first, stem, assets, snapshot, log
+        )
+        item['last'] = last
 
     # Phase 3: Generate all video clips back-to-back (evict image model once before first clip, then stay hot)
     timings = []

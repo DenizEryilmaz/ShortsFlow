@@ -305,7 +305,7 @@ class Store:
         img = settings.get('image', 'flux2-klein-4b')
         vid = settings.get('video', 'freevideo-h3')
         img_sec = 24 if img == 'flux2-klein-4b' else 240
-        vid_sec = 75 if vid in ('wan22-ti2v-5b', 'ltxv-distilled') else (5 if vid == 'still-motion' else 195)
+        vid_sec = 75 if vid == 'ltxv-distilled' else (5 if vid == 'still-motion' else 195)
         if kind in ('script', 'scene_rewrite'):
             return 25
         if kind == 'character':

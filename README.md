@@ -109,8 +109,7 @@ ShortsFlow is **Bring Your Own Models (BYOM)** — no model weights are bundled 
 | Quality Profile | Image Model | Video Model | Est. Speed *(8 GB VRAM)* | Best For |
 |---|---|---|---|---|
 | **Fast (Draft)** | FLUX.2 `[klein]` 4B FP8 | LTX-Video 0.9.8 Distilled FP8 | ~1.5–2 min / scene | Rapid iteration & storyboarding |
-| **Fast+ *(Recommended)*** | FLUX.2 `[klein]` 4B FP8 | **Wan 2.2 TI2V-5B FastWan FP8** *(6-step)* | ~1.5–2 min / scene | Fast episodic series (100% Apache-2.0) |
-| **Balanced** | FLUX.2 `[klein]` 4B FP8 | MiniMax H3 INT8 *(FreeVideo + step-cache)* | ~3.5 min / scene | High motion fidelity |
+| **Balanced *(Recommended)*** | FLUX.2 `[klein]` 4B FP8 | MiniMax H3 INT8 *(FreeVideo + step-cache)* | ~3.5 min / scene | Episodic series & high motion fidelity |
 | **High (Cinematic)** | Qwen-Image-2.1 Turbo INT8 | MiniMax H3 INT8 *(FreeVideo + step-cache)* | ~12 min / scene | Maximum detail hero shots |
 | **Still Motion** | Any image model | FFmpeg Ken Burns motion | ~30 sec / scene | Explainers & ultra-fast drafts |
 
@@ -234,7 +233,6 @@ This repository **does not include or redistribute** any third-party engines, AI
 | **Piper TTS** | External CLI subprocess | GPL-3.0-or-later | Invoked strictly out-of-process via CLI (`STUDIO_PIPER_BIN`) |
 | **Qwen3-VL-8B-Instruct** | Model weights *(user-supplied)* | **Apache-2.0** | Commercial & open-source friendly |
 | **FLUX.2 `[klein]` 4B** | Model weights *(user-supplied)* | **Apache-2.0** | Commercial & open-source friendly *(9B / dev variants are non-commercial)* |
-| **Wan 2.2 TI2V-5B + FastWan** | Model weights *(user-supplied)* | **Apache-2.0** | Commercial & open-source friendly, 8 GB VRAM FP8 native ComfyUI |
 | **LTX-Video 0.9.8** | Model weights *(user-supplied)* | LTX Open Weights / Community | Commercial free under revenue cap; review Lightricks terms |
 | **MiniMax H3** | Model weights *(user-supplied)* | MiniMax H3 Community License | Revenue cap, UI attribution, and territorial restrictions (US/EU/UK/KR) — review MiniMax terms before commercial use |
 | **Qwen-Image-2.1** | Model weights *(user-supplied)* | Qwen Research License | **Non-commercial** research/evaluation license for weights |
