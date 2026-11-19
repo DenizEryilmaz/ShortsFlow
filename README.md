@@ -7,6 +7,19 @@ Create multi-episode animated shorts, consistent cast & locations, voice-synced 
 
 ---
 
+## Interface Preview
+
+### Series Hub & Episode Management
+![ShortsFlow Series Hub](./docs/screenshots/series-hub.png)
+
+### 3-Stage Episode Workspace & Visual Storyboard
+![ShortsFlow Episode Storyboard](./docs/screenshots/episode-storyboard.png)
+
+### Video Library, Delivery Theater & Publish Pack
+![ShortsFlow Delivery Theater](./docs/screenshots/delivery-theater.png)
+
+---
+
 ## Key Features
 
 - **Series → Episode → Scene Hierarchy:** Organize multi-episode shows with a shared **Series Bible** (visual style, aspect ratio, language, narrator voice, BGM, caption style) that automatically cascades to new episodes.
