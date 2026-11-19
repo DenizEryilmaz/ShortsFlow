@@ -566,16 +566,20 @@ def _build_wan22_ti2v_graph(prompt, negative, settings, first_name, length, clip
         'LoraLoaderModelOnly',
         model=[unet, 0],
         lora_name='Wan2_2_5B_FastWanFullAttn_lora_rank_128_bf16.safetensors',
-        strength_model=1.0,
+        strength_model=0.95,
     )
-    model = add('ModelSamplingSD3', model=[lora, 0], shift=8.0)
+    model = add('ModelSamplingSD3', model=[lora, 0], shift=5.0)
     clip = add('CLIPLoader', clip_name='umt5_xxl_fp8_e4m3fn_scaled.safetensors', type='wan', device=clip_device)
     vae = add('VAELoader', vae_name='wan2.2_vae.safetensors')
-    pos = add('CLIPTextEncode', clip=[clip, 0], text=prompt)
+    stable_prompt = (
+        f'{prompt.strip().rstrip(".")}. Smooth steady stabilized camera motion, consistent framing, '
+        'fluid natural movement, zero camera shake, no flicker.'
+    )
+    pos = add('CLIPTextEncode', clip=[clip, 0], text=stable_prompt)
     neg = add(
         'CLIPTextEncode',
         clip=[clip, 0],
-        text=negative or 'blurry, distorted, deformed, low quality, worst quality, static, watermark, text',
+        text=negative or 'camera shake, jittery, trembling, flickering, blurry, distorted, deformed, low quality, watermark, text',
     )
     first_img = add('LoadImage', image=first_name)
     latent = add(
@@ -591,9 +595,9 @@ def _build_wan22_ti2v_graph(prompt, negative, settings, first_name, length, clip
         'KSampler',
         model=[model, 0],
         seed=int(settings['seed']),
-        steps=6,
+        steps=8,
         cfg=1.0,
-        sampler_name='uni_pc',
+        sampler_name='euler',
         scheduler='simple',
         positive=[pos, 0],
         negative=[neg, 0],
