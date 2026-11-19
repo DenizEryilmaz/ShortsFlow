@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 560">
+  <defs>
+    <pattern id="dots" width="8" height="8" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1.4" fill="#d98a3c" opacity="0.22"/></pattern>
+  </defs>
+  <rect width="448" height="560" fill="#101318"/>
+  <rect width="448" height="560" fill="url(#dots)"/>
+  <polygon points="0,0 190,0 130,560 0,560" fill="#06080b"/>
+  <polygon points="310,0 448,0 448,560 350,560" fill="#06080b"/>
+  <polygon points="180,90 315,90 270,560 115,560" fill="#e59a42" opacity="0.22"/>
+  <circle cx="235" cy="185" r="36" fill="#080a0e" stroke="#f0b05d" stroke-width="3"/>
+  <path d="M180 285 Q235 245 290 285 L312 480 L158 480 Z" fill="#080a0e" stroke="#f0b05d" stroke-width="3"/>
+  <line x1="28" y1="60" x2="120" y2="210" stroke="#f0b05d" stroke-width="2" opacity="0.5"/>
+  <line x1="340" y1="45" x2="420" y2="175" stroke="#f0b05d" stroke-width="2" opacity="0.5"/>
+</svg>

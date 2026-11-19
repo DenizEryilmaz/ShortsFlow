@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 560">
+  <defs>
+    <linearGradient id="asky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#2e79c7"/><stop offset="60%" stop-color="#7ec4eb"/><stop offset="100%" stop-color="#e3f3f9"/></linearGradient>
+    <linearGradient id="hill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#5ca95e"/><stop offset="100%" stop-color="#2c6642"/></linearGradient>
+  </defs>
+  <rect width="448" height="560" fill="url(#asky)"/>
+  <g fill="#ffffff" opacity="0.92">
+    <ellipse cx="140" cy="145" rx="78" ry="38"/><ellipse cx="195" cy="130" rx="64" ry="44"/><ellipse cx="245" cy="155" rx="58" ry="30"/>
+    <ellipse cx="345" cy="210" rx="66" ry="28"/><ellipse cx="385" cy="198" rx="45" ry="30"/>
+  </g>
+  <path d="M0 370 Q150 315 290 360 T448 340 L448 560 L0 560 Z" fill="url(#hill)" stroke="#1d4430" stroke-width="2.5"/>
+  <path d="M0 445 Q170 400 320 445 T448 430 L448 560 L0 560 Z" fill="#275a3c" stroke="#143222" stroke-width="2.5"/>
+  <line x1="120" y1="330" x2="120" y2="435" stroke="#22303c" stroke-width="4"/>
+  <line x1="100" y1="350" x2="140" y2="350" stroke="#22303c" stroke-width="3"/>
+  <path d="M0 358 Q120 380 448 332" stroke="#1e2a34" stroke-width="1.5" fill="none"/>
+</svg>

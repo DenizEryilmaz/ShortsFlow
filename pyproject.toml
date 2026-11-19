@@ -1,0 +1,10 @@
+[project]
+name = "shortsflow"
+version = "1.0.0"
+description = "Local-first AI animation and short-form series production studio"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

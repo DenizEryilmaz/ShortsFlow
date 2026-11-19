@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 560">
+  <defs>
+    <radialGradient id="studio" cx="45%" cy="30%" r="75%"><stop offset="0%" stop-color="#f2dcc2"/><stop offset="100%" stop-color="#9e7f67"/></radialGradient>
+    <radialGradient id="clay1" cx="35%" cy="30%" r="65%"><stop offset="0%" stop-color="#f59a6a"/><stop offset="100%" stop-color="#b84b2e"/></radialGradient>
+    <radialGradient id="clay2" cx="35%" cy="30%" r="65%"><stop offset="0%" stop-color="#8ec7a8"/><stop offset="100%" stop-color="#3e7a5e"/></radialGradient>
+    <filter id="sh"><feDropShadow dx="6" dy="12" stdDeviation="8" flood-color="#3c2618" flood-opacity="0.4"/></filter>
+  </defs>
+  <rect width="448" height="560" fill="url(#studio)"/>
+  <ellipse cx="224" cy="485" rx="220" ry="65" fill="#7d614d"/>
+  <g filter="url(#sh)">
+    <rect x="148" y="275" width="152" height="175" rx="58" fill="url(#clay2)"/>
+    <circle cx="224" cy="210" r="68" fill="url(#clay1)"/>
+    <circle cx="200" cy="202" r="9" fill="#241914"/><circle cx="248" cy="202" r="9" fill="#241914"/>
+    <circle cx="197" cy="199" r="3" fill="#fff"/><circle cx="245" cy="199" r="3" fill="#fff"/>
+    <path d="M206 232 Q224 246 242 232" stroke="#472318" stroke-width="5" fill="none" stroke-linecap="round"/>
+  </g>
+</svg>

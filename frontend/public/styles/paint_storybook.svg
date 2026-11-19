@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 560">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#f5d5a7"/><stop offset="55%" stop-color="#e89f71"/><stop offset="100%" stop-color="#7c5c6b"/></linearGradient>
+    <radialGradient id="sun" cx="50%" cy="40%" r="50%"><stop offset="0%" stop-color="#fff8e0"/><stop offset="100%" stop-color="#f7b267" stop-opacity="0"/></radialGradient>
+    <filter id="wc"><feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="3" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="6"/></filter>
+  </defs>
+  <rect width="448" height="560" fill="url(#sky)"/>
+  <circle cx="290" cy="170" r="110" fill="url(#sun)"/>
+  <circle cx="290" cy="170" r="42" fill="#fff6db" opacity="0.9"/>
+  <path d="M0 360 Q110 290 240 340 T448 320 L448 560 L0 560 Z" fill="#5e7260" filter="url(#wc)"/>
+  <path d="M0 420 Q160 365 300 415 T448 395 L448 560 L0 560 Z" fill="#3b4f44" filter="url(#wc)"/>
+  <path d="M180 410 L215 350 L250 410 Z" fill="#8b4d3b" filter="url(#wc)"/>
+  <rect x="192" y="405" width="46" height="40" fill="#e5c89e"/>
+  <rect x="208" y="418" width="14" height="16" fill="#ffcf70"/>
+  <path d="M90 480 Q210 455 215 445" stroke="#d8b98a" stroke-width="14" fill="none" stroke-linecap="round" opacity="0.7"/>
+</svg>
