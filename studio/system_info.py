@@ -197,7 +197,11 @@ def start_service(service_id: str, data_root: Path) -> str:
             raise ValueError('ComfyUI dizini bulunamadı.')
         log = (data_root / 'comfyui-start.log').open('a', encoding='utf-8')
         subprocess.Popen(
-            [str(py), 'main.py', '--listen', '127.0.0.1', '--port', '8188', '--disable-dynamic-vram', '--lowvram', '--disable-all-custom-nodes'],
+            [
+                str(py), 'main.py', '--listen', '127.0.0.1', '--port', '8188',
+                '--disable-dynamic-vram', '--lowvram', '--disable-pinned-memory', '--cache-none',
+                '--disable-all-custom-nodes',
+            ],
             cwd=COMFY,
             stdout=log,
             stderr=subprocess.STDOUT,
