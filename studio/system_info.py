@@ -199,8 +199,7 @@ def start_service(service_id: str, data_root: Path) -> str:
         subprocess.Popen(
             [
                 str(py), 'main.py', '--listen', '127.0.0.1', '--port', '8188',
-                '--disable-dynamic-vram', '--lowvram', '--disable-pinned-memory',
-                '--disable-all-custom-nodes',
+                '--disable-pinned-memory', '--disable-all-custom-nodes',
             ],
             cwd=COMFY,
             stdout=log,
