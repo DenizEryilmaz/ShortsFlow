@@ -25,7 +25,7 @@ INGREDIENT_TYPES = Literal['character', 'location', 'prop']
 class Settings(BaseModel):
     script: str = 'qwen3-vl:8b-instruct'
     image: Literal['flux2-klein-4b', 'qwen-image-21'] = 'flux2-klein-4b'
-    video: Literal['ltxv-distilled', 'freevideo-h3', 'still-motion'] = 'ltxv-distilled'
+    video: Literal['wan22-ti2v-5b', 'ltxv-distilled', 'freevideo-h3', 'still-motion'] = 'wan22-ti2v-5b'
     voice: str = 'tr_TR-dfki-medium'
     renderer: Literal['hyperframes', 'ffmpeg'] = 'hyperframes'
     language: LANGUAGE_IDS = 'tr'
