@@ -231,6 +231,7 @@ This repository **does not include or redistribute** any third-party engines, AI
 | **FreeVideo** *(engine code)* | External CLI subprocess | Apache-2.0 | Separate local installation |
 | **FFmpeg** | External CLI subprocess | LGPL / GPL | System binary |
 | **Piper TTS** | External CLI subprocess | GPL-3.0-or-later | Invoked strictly out-of-process via CLI (`STUDIO_PIPER_BIN`) |
+| **Kokoro-82M** (`kokoro-onnx`) | External CPU subprocess *(optional)* | **Apache-2.0** *(weights)* / MIT *(wrapper)* | 11 natural studio voices (EN/FR/ES/IT/PT), zero VRAM, 1-click download in Assets |
 | **Qwen3-VL-8B-Instruct** | Model weights *(user-supplied)* | **Apache-2.0** | Commercial & open-source friendly |
 | **FLUX.2 `[klein]` 4B** | Model weights *(user-supplied)* | **Apache-2.0** | Commercial & open-source friendly *(9B / dev variants are non-commercial)* |
 | **LTX-Video 0.9.8** | Model weights *(user-supplied)* | LTX Open Weights / Community | Commercial free under revenue cap; review Lightricks terms |
@@ -244,7 +245,7 @@ This repository **does not include or redistribute** any third-party engines, AI
 
 - [ ] Full English / Turkish UI locale switcher (currently UI defaults to Turkish with multilingual content output)
 - [ ] Optional Docker Compose setup for Linux GPU hosts
-- [ ] Additional open-source TTS backends (Kokoro / Chatterbox)
+- [x] Additional open-source TTS backend (**Kokoro-82M** Apache-2.0 studio voices)
 - [ ] Scene-level timeline waveform scrubbing & custom subtitle font/position controls
 - [ ] Automated social publishing integrations (YouTube Data API draft upload)
 

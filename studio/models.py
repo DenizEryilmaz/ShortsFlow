@@ -125,6 +125,31 @@ VOICE_REGISTRY = [
 ]
 VOICE_LABELS = {row['id']: row['label'] for row in VOICE_REGISTRY}
 
+KOKORO_FILES = {
+    'kokoro-v1.0.onnx': 'https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx',
+    'voices-v1.0.bin': 'https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin',
+}
+
+KOKORO_REGISTRY = [
+    {'id': 'kokoro-af_heart', 'voice': 'af_heart', 'lang_code': 'en-us', 'language': 'en', 'label': 'Kokoro-82M US · Heart (Kadın, en doğal stüdyo)'},
+    {'id': 'kokoro-af_bella', 'voice': 'af_bella', 'lang_code': 'en-us', 'language': 'en', 'label': 'Kokoro-82M US · Bella (Kadın, sıcak anlatıcı)'},
+    {'id': 'kokoro-af_sarah', 'voice': 'af_sarah', 'lang_code': 'en-us', 'language': 'en', 'label': 'Kokoro-82M US · Sarah (Kadın, net hikâye)'},
+    {'id': 'kokoro-am_michael', 'voice': 'am_michael', 'lang_code': 'en-us', 'language': 'en', 'label': 'Kokoro-82M US · Michael (Erkek, sinematik)'},
+    {'id': 'kokoro-am_fenrir', 'voice': 'am_fenrir', 'lang_code': 'en-us', 'language': 'en', 'label': 'Kokoro-82M US · Fenrir (Erkek, derin masalsı)'},
+    {'id': 'kokoro-bf_emma', 'voice': 'bf_emma', 'lang_code': 'en-gb', 'language': 'en', 'label': 'Kokoro-82M UK · Emma (Kadın, İngiliz)'},
+    {'id': 'kokoro-bm_george', 'voice': 'bm_george', 'lang_code': 'en-gb', 'language': 'en', 'label': 'Kokoro-82M UK · George (Erkek, İngiliz anlatıcı)'},
+    {'id': 'kokoro-ff_siwis', 'voice': 'ff_siwis', 'lang_code': 'fr-fr', 'language': 'fr', 'label': 'Kokoro-82M FR · Siwis (Kadın, Fransızca)'},
+    {'id': 'kokoro-ef_dora', 'voice': 'ef_dora', 'lang_code': 'es', 'language': 'es', 'label': 'Kokoro-82M ES · Dora (Kadın, İspanyolca)'},
+    {'id': 'kokoro-if_sara', 'voice': 'if_sara', 'lang_code': 'it', 'language': 'it', 'label': 'Kokoro-82M IT · Sara (Kadın, İtalyanca)'},
+    {'id': 'kokoro-pf_dora', 'voice': 'pf_dora', 'lang_code': 'pt-br', 'language': 'pt', 'label': 'Kokoro-82M PT · Dora (Kadın, Portekizce)'},
+]
+KOKORO_BY_ID = {row['id']: row for row in KOKORO_REGISTRY}
+
+
+def kokoro_ready() -> bool:
+    kokoro_dir = ROOT / 'models' / 'kokoro'
+    return all((kokoro_dir / name).is_file() for name in KOKORO_FILES)
+
 
 def voice_catalog():
     piper_dir = ROOT / 'models' / 'piper'
@@ -135,6 +160,21 @@ def voice_catalog():
     }
     rows = []
     seen = set()
+    kokoro_ok = kokoro_ready()
+    kokoro_size = (
+        sum((ROOT / 'models' / 'kokoro' / name).stat().st_size for name in KOKORO_FILES)
+        if kokoro_ok
+        else None
+    )
+    for entry in KOKORO_REGISTRY:
+        rows.append({
+            'id': entry['id'],
+            'name': entry['label'],
+            'language': entry['language'],
+            'engine': 'kokoro',
+            'installed': kokoro_ok,
+            'bytes': kokoro_size,
+        })
     for entry in VOICE_REGISTRY:
         vid = entry['id']
         seen.add(vid)
@@ -143,6 +183,7 @@ def voice_catalog():
             'id': vid,
             'name': entry['label'],
             'language': entry['language'],
+            'engine': 'piper',
             'installed': path is not None,
             'bytes': path.stat().st_size if path else None,
         })
@@ -152,6 +193,7 @@ def voice_catalog():
                 'id': vid,
                 'name': f'Piper · {vid}',
                 'language': vid.split('_')[0],
+                'engine': 'piper',
                 'installed': True,
                 'bytes': path.stat().st_size,
             })
@@ -159,6 +201,22 @@ def voice_catalog():
 
 
 def install_voice(voice_id):
+    if voice_id in KOKORO_BY_ID:
+        kokoro_dir = ROOT / 'models' / 'kokoro'
+        kokoro_dir.mkdir(parents=True, exist_ok=True)
+        with httpx.Client(follow_redirects=True, timeout=300) as client:
+            for name, url in KOKORO_FILES.items():
+                target = kokoro_dir / name
+                if target.is_file() and target.stat().st_size > 1_000_000:
+                    continue
+                temp = target.with_suffix(target.suffix + '.tmp')
+                with client.stream('GET', url) as response:
+                    response.raise_for_status()
+                    with temp.open('wb') as fh:
+                        for chunk in response.iter_bytes(1024 * 1024):
+                            fh.write(chunk)
+                temp.replace(target)
+        return next(row for row in voice_catalog() if row['id'] == voice_id)
     entry = next((row for row in VOICE_REGISTRY if row['id'] == voice_id), None)
     if entry is None:
         raise ValueError('Bilinmeyen ses modeli.')
@@ -237,11 +295,24 @@ def catalog():
                       reason='' if machine.is_file() else 'FreeVideo kurulumu bulunamadı.'))
     items.append(dict(id='still-motion', kind='video', name='Görsel ve kamera hareketi', ready=True,
                       capabilities=['first_frame']))
+    if kokoro_ready():
+        kokoro_onnx = ROOT / 'models' / 'kokoro' / 'kokoro-v1.0.onnx'
+        for entry in KOKORO_REGISTRY:
+            items.append(dict(
+                id=entry['id'],
+                kind='voice',
+                name=entry['label'],
+                bytes=kokoro_onnx.stat().st_size,
+                modified_ns=kokoro_onnx.stat().st_mtime_ns,
+                language=entry['language'],
+                engine='kokoro',
+                ready=True,
+            ))
     for path in sorted((ROOT / 'models' / 'piper').glob('*.onnx')):
         if Path(f'{path}.json').is_file():
             items.append(dict(id=path.stem, kind='voice', name=VOICE_LABELS.get(path.stem, f'Piper · {path.stem}'),
                               bytes=path.stat().st_size, modified_ns=path.stat().st_mtime_ns,
-                              language=path.stem.split('_')[0], ready=True))
+                              language=path.stem.split('_')[0], engine='piper', ready=True))
     items.append(dict(id='ffmpeg', kind='renderer', name='FFmpeg', ready=True))
     hyper = WORKSPACE / 'hyperframes-tool' / 'node_modules' / 'hyperframes' / 'bin' / 'hyperframes.mjs'
     items.append(dict(id='hyperframes', kind='renderer', name='HyperFrames', ready=hyper.is_file()))
@@ -253,11 +324,16 @@ def validate(settings, items=None, kinds=('script', 'image', 'video', 'voice', '
     for kind in kinds:
         if not any(row['id'] == settings[kind] and row['kind'] == kind and row['ready'] for row in items):
             raise ValueError(f'Seçili {kind} modeli hazır değil: {settings[kind]}')
-    if settings.get('language', 'tr') not in ('tr', 'en'):
-        raise ValueError('Desteklenen diller Türkçe ve İngilizce.')
+    if settings.get('language', 'tr') not in ('tr', 'en', 'de', 'fr', 'es', 'it', 'ru', 'pt'):
+        raise ValueError('Desteklenmeyen anlatım dili.')
 
 
 def voice_path(identifier):
+    if identifier in KOKORO_BY_ID:
+        if not kokoro_ready():
+            raise ValueError('Kokoro-82M ses modeli kurulu değil.')
+        entry = KOKORO_BY_ID[identifier]
+        return f"kokoro:{entry['voice']}:{entry['lang_code']}"
     candidates = {path.stem: path for path in (ROOT / 'models' / 'piper').glob('*.onnx')}
     if identifier not in candidates or not Path(f'{candidates[identifier]}.json').is_file():
         raise ValueError('Ses modeli bulunamadı.')

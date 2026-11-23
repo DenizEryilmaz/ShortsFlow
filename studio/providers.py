@@ -580,6 +580,9 @@ def freevideo(prompt, first, last, references, duration, output, settings, on_pr
     step_cache = os.getenv('STUDIO_FREEVIDEO_STEP_CACHE', 'easycache-av').strip().lower()
     if step_cache in ('easycache-av', 'fbcache'):
         cmd.extend(['--step-cache', step_cache])
+    base_steps = os.getenv('STUDIO_FREEVIDEO_BASE_STEPS', '').strip()
+    if base_steps.isdigit() and 4 <= int(base_steps) <= 16:
+        cmd.extend(['--base-steps', base_steps])
     run(
         cmd,
         cwd=FREEVIDEO,

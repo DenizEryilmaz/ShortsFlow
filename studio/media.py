@@ -192,43 +192,84 @@ def _piper_command() -> list[str]:
     return [sys.executable, "-m", "piper"]
 
 
-def load_voice(path: str | Path) -> Path:
-    """Validate and return a Piper ONNX voice model path on disk."""
+def load_voice(path: str | Path) -> str | Path:
+    """Validate and return a Piper ONNX voice path or a Kokoro-82M voice descriptor."""
+    text_path = str(path)
+    if text_path.startswith("kokoro:"):
+        kokoro_dir = Path(__file__).resolve().parents[1] / "models" / "kokoro"
+        if not (kokoro_dir / "kokoro-v1.0.onnx").is_file() or not (kokoro_dir / "voices-v1.0.bin").is_file():
+            raise RuntimeError("Kokoro-82M model dosyaları eksik.")
+        return text_path
     voice = Path(path)
     if not voice.is_file() or not Path(f"{voice}.json").is_file():
         raise RuntimeError(f"Piper ses modeli veya yapılandırması eksik: {voice}")
     return voice
 
 
-def synthesize(voice: str | Path, text: str, output: Path) -> float:
-    """Synthesize ``text`` to a WAV file via the external Piper CLI and verify audible speech."""
-    cleaned = (text or "").strip()
-    if not cleaned:
-        raise ValueError("Seslendirme metni boş.")
-    voice_file = load_voice(voice)
-    output_path = Path(output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [*_piper_command(), "-m", str(voice_file), "-f", str(output_path)]
+def _synthesize_kokoro(descriptor: str, text: str, output_path: Path) -> None:
+    """Run Kokoro-82M synthesis out-of-process on CPU (zero VRAM, clean license isolation)."""
+    parts = descriptor.split(":")
+    voice_name = parts[1] if len(parts) > 1 else "af_heart"
+    lang_code = parts[2] if len(parts) > 2 else "en-us"
+    kokoro_dir = Path(__file__).resolve().parents[1] / "models" / "kokoro"
+    onnx_path = kokoro_dir / "kokoro-v1.0.onnx"
+    voices_path = kokoro_dir / "voices-v1.0.bin"
+    script = (
+        "import array, sys, wave; "
+        "from kokoro_onnx import Kokoro; "
+        "k = Kokoro(sys.argv[1], sys.argv[2]); "
+        "text = sys.stdin.read().strip(); "
+        "samples, sr = k.create(text, voice=sys.argv[3], speed=1.0, lang=sys.argv[4]); "
+        "pcm = array.array('h', (max(-32767, min(32767, int(x * 32767))) for x in samples)); "
+        "w = wave.open(sys.argv[5], 'wb'); "
+        "w.setparams((1, 2, sr, 0, 'NONE', 'not compressed')); "
+        "w.writeframes(pcm.tobytes()); w.close()"
+    )
+    env = {**os.environ, "ONNX_PROVIDER": "CPUExecutionProvider"}
     result = subprocess.run(
-        cmd,
-        input=cleaned.encode("utf-8"),
+        [sys.executable, "-c", script, str(onnx_path), str(voices_path), voice_name, lang_code, str(output_path)],
+        input=text.encode("utf-8"),
         capture_output=True,
+        env=env,
         timeout=120,
     )
     if result.returncode != 0 or not output_path.is_file():
         err = (result.stderr or b"").decode("utf-8", errors="replace")[-600:]
-        raise RuntimeError(f"Piper ses üretimi başarısız oldu: {err or f'çıkış kodu {result.returncode}'}")
+        raise RuntimeError(f"Kokoro-82M ses üretimi başarısız oldu: {err or f'çıkış kodu {result.returncode}'}")
+
+
+def synthesize(voice: str | Path, text: str, output: Path) -> float:
+    """Synthesize ``text`` to a WAV file via Kokoro-82M or Piper CLI and verify audible speech."""
+    cleaned = (text or "").strip()
+    if not cleaned:
+        raise ValueError("Seslendirme metni boş.")
+    voice_ref = load_voice(voice)
+    output_path = Path(output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if isinstance(voice_ref, str) and voice_ref.startswith("kokoro:"):
+        _synthesize_kokoro(voice_ref, cleaned, output_path)
+    else:
+        cmd = [*_piper_command(), "-m", str(voice_ref), "-f", str(output_path)]
+        result = subprocess.run(
+            cmd,
+            input=cleaned.encode("utf-8"),
+            capture_output=True,
+            timeout=120,
+        )
+        if result.returncode != 0 or not output_path.is_file():
+            err = (result.stderr or b"").decode("utf-8", errors="replace")[-600:]
+            raise RuntimeError(f"Piper ses üretimi başarısız oldu: {err or f'çıkış kodu {result.returncode}'}")
     with wave.open(str(output_path), "rb") as wav:
         frames = wav.getnframes()
         sample_rate = wav.getframerate()
         raw = wav.readframes(frames)
     if frames == 0 or sample_rate <= 0:
-        raise RuntimeError("Piper duyulabilir ses üretmedi.")
+        raise RuntimeError("Ses sentezleyici duyulabilir ses üretmedi.")
     samples = array.array("h")
     samples.frombytes(raw[: (len(raw) // 2) * 2])
     peak = max((abs(s) for s in samples), default=0) / 32768.0
     if peak < 0.01 or not math.isfinite(peak):
-        raise RuntimeError("Piper duyulabilir ses üretmedi.")
+        raise RuntimeError("Ses sentezleyici duyulabilir ses üretmedi.")
     return frames / sample_rate
 
 

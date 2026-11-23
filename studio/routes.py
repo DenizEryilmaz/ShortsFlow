@@ -296,7 +296,8 @@ def router(data_root, owner_id=None):
             raise HTTPException(404, str(error)) from error
         cache_dir = store.root / 'voice_previews'
         cache_dir.mkdir(exist_ok=True)
-        wav_path = cache_dir / f'{voice_id}.wav'
+        safe_name = voice_id.replace(':', '_')
+        wav_path = cache_dir / f'{safe_name}.wav'
         if not wav_path.is_file():
             samples = {
                 'tr': 'Merhaba, ShortsFlow ses önizlemesi. Bu sesle hikâyenizi anlatabilirsiniz.',
@@ -308,7 +309,10 @@ def router(data_root, owner_id=None):
                 'ru': 'Привет, это предварительный просмотр голоса ShortsFlow для вашего видео.',
                 'pt': 'Olá, esta é uma prévia de voz do ShortsFlow para a sua história.',
             }
-            lang_prefix = voice_id.split('_')[0]
+            if str(path).startswith('kokoro:'):
+                lang_prefix = str(path).split(':')[2].split('-')[0]
+            else:
+                lang_prefix = voice_id.split('_')[0]
             sample_text = samples.get(lang_prefix, samples['en'])
             def _synth():
                 voice = media.load_voice(path)
