@@ -702,6 +702,7 @@ def _produce_scene_clip(
                 on_progress=lambda msg: log(f'Sahne {index} · Diyalog · {msg}'),
                 log_path=output / 'render.log',
                 cancel_check=lambda: store.is_cancelled(job['id']),
+                unload_before=unload_before,
             )
             _attach_narration(raw_video)
         elif engine == 'ltxv-distilled':
@@ -1103,12 +1104,12 @@ def render(store, job, output, log):
     for item in ordered_for_gpu:
         index, stem, scene, engine = item['index'], item['stem'], item['scene'], item['engine']
         log(f"Faz 3/3 · Video klip ({engine}) · Sahne {index}/{total} · {scene['title']}")
-        needs_gpu_switch = engine in ('ltxv-distilled', 'freevideo-h3') and engine != last_gpu_engine
+        needs_gpu_switch = engine in ('lipsync', 'ltxv-distilled', 'freevideo-h3') and engine != last_gpu_engine
         video, _ = _produce_scene_clip(
             store, job, project, scene, index, item['first'], item['last'], item['motion_prompt'],
             item['references'], stem, assets, output, snapshot, log, unload_before=needs_gpu_switch,
         )
-        if engine in ('ltxv-distilled', 'freevideo-h3'):
+        if engine in ('lipsync', 'ltxv-distilled', 'freevideo-h3'):
             last_gpu_engine = engine
         timings_by_index[index] = dict(
             stem=stem,

@@ -667,14 +667,20 @@ def lipsync_video(
     on_progress=None,
     log_path=None,
     cancel_check=None,
+    unload_before=True,
 ):
-    """Animate a talking character frame synced to audio via external MuseTalk/LivePortrait CLI (if configured),
-    falling back gracefully to subtle portrait camera motion when no external lip-sync binary is configured."""
+    """Animate a talking character frame synced to audio via external Ditto/MuseTalk/LivePortrait CLI (if configured),
+    falling back gracefully to subtle portrait camera motion when no external lip-sync binary is configured or no face is detected."""
     import os
     import shlex
 
     template = os.getenv('STUDIO_LIPSYNC_CMD', '').strip()
     if template and audio_path and Path(audio_path).is_file():
+        if unload_before:
+            try:
+                comfy('free', {'unload_models': True, 'free_memory': True})
+            except Exception:
+                pass
         if on_progress:
             on_progress('Dudak senkronlu konuşma klibi üretiliyor (harici motor)…')
         values = {
@@ -685,11 +691,21 @@ def lipsync_video(
             'height': str(int(settings['height'])),
             'duration': str(duration),
         }
-        tokens = [tok.format(**values) for tok in shlex.split(template, posix=(os.name != 'nt'))]
-        run(tokens, timeout=900, log_path=log_path, on_progress=on_progress, cancel_check=cancel_check)
-        if Path(output).is_file() and Path(output).stat().st_size > 1000:
-            return
-    if on_progress:
+        raw_tokens = shlex.split(template, posix=(os.name != 'nt'))
+        tokens = [
+            (tok[1:-1] if len(tok) >= 2 and tok[0] == tok[-1] and tok[0] in ('"', "'") else tok).format(**values)
+            for tok in raw_tokens
+        ]
+        try:
+            run(tokens, timeout=900, log_path=log_path, on_progress=on_progress, cancel_check=cancel_check)
+            if Path(output).is_file() and Path(output).stat().st_size > 1000:
+                return
+        except JobCancelled:
+            raise
+        except Exception as exc:
+            if on_progress:
+                on_progress(f'Dudak senkronu atlandı ({str(exc)[:120]}), portre hareketine geçiliyor…')
+    elif on_progress:
         on_progress('Hızlı diyalog portre hareketi uygulanıyor (STUDIO_LIPSYNC_CMD tanımlı değil)…')
     camera_motion_video(first, duration, output, settings, camera_move='static', log_path=log_path, cancel_check=cancel_check)
 
