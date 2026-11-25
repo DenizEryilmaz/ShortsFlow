@@ -471,6 +471,8 @@ def _produce_scene_audio(store, job, project, scene, characters, voices, stem, a
         try:
             shutil.copyfile(resolve_asset(store, job['owner'], existing_id), audio)
             spoken = providers.movie_duration(audio)
+            if spoken > scene['duration'] - 0.1:
+                scene['duration'] = min(30.0, round(spoken + 0.35, 1))
             return audio, spoken, voice_id, existing_id
         except (ValueError, OSError, subprocess.CalledProcessError):
             pass
@@ -496,18 +498,25 @@ def _produce_scene_audio(store, job, project, scene, characters, voices, stem, a
             validate_media,
         )
     spoken = providers.movie_duration(audio)
+    duration_extended = False
     if spoken > scene['duration'] - 0.1:
-        raise ValueError(
-            f"Sahne ({scene['title'] or stem}) seslendirmesi {spoken:.1f} sn, sahne {scene['duration']:.1f} sn. Metni kısaltın veya süreyi uzatın."
-        )
-    if generated or not existing_id:
-        asset_id = save_generated_asset(
+        scene['duration'] = min(30.0, round(spoken + 0.35, 1))
+        duration_extended = True
+        log(f"Sahne ({scene['title'] or stem}) süresi konuşmaya göre {scene['duration']:.1f} sn olarak uzatıldı.")
+    if generated or not existing_id or duration_extended:
+        asset_id = existing_id or save_generated_asset(
             store, job['owner'], audio, f"{scene['title'] or stem} · ses", ext='wav'
         )
+        if generated:
+            asset_id = save_generated_asset(
+                store, job['owner'], audio, f"{scene['title'] or stem} · ses", ext='wav'
+            )
         updates = {
             'audio_asset': asset_id,
             'spoken_duration': round(spoken, 2),
         }
+        if duration_extended:
+            updates['duration'] = scene['duration']
         # If a clip already exists for this scene, re-mux it with the new narration so preview stays in sync
         clip_id = scene.get('clip_asset') or ''
         if clip_id:
