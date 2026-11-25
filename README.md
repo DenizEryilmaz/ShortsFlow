@@ -2,9 +2,9 @@
 
 # ShortsFlow
 
-### Local-First AI Animation & Short-Form Series Production Studio
+### Local-First AI Animation, Shorts & Long-Form Realistic Series Studio
 
-Turn a story idea into multi-episode animated shorts with consistent characters & locations, multi-speaker dialogue, 1-to-1 voice-synced subtitles, auto-ducking music, and publish-ready exports — **running 100% locally on an 8 GB VRAM GPU**.
+Turn a story idea into multi-episode animated shorts or **30–40 minute 480p realistic TV series** with consistent characters & locations, multi-speaker dialogue, hybrid per-shot rendering, 1-to-1 voice-synced subtitles, auto-ducking music, and publish-ready exports — **running 100% locally on an 8 GB VRAM GPU**.
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-f59e0b.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776ab.svg?logo=python&logoColor=white)](https://www.python.org/)
@@ -67,8 +67,9 @@ Browse all completed episodes by series or aspect ratio, binge-watch sequentiall
 
 ### Production Hierarchy & Series Bible
 - **`Series → Episode → Scene` Organization:** Group multi-episode shows under a unified **Series Hub** with progress tracking, episode grids, cast roster, and sequential **Marathon Watch**.
-- **Inherited Series Bible:** Configure visual style, aspect ratio (`9:16`, `16:9`, `1:1`), language, narrator voice, transition style, caption preset, and background music once — every new episode inherits them automatically.
-- **5-Step Creation Wizard:** Guided creation flow from story idea → interactive 20-second style previews → AI cast & location proposals → format & quality selection → live time & disk estimates.
+- **Inherited Series Bible:** Configure visual style (**10 curated styles** including *35mm Cinema* and *Documentary*), aspect ratio (`9:16`, `16:9`, `16:9-480p`, `1:1`), language, narrator voice, transition style, caption preset, and background music once — every new episode inherits them automatically.
+- **Long-Form 480p Hybrid Series Mode (Up to 45 Min / 600 Shots):** Build 30–40 minute episodes block-by-block with the **Scene-Block Expander** (`POST /api/studio/projects/{id}/expand-block`), which breaks a 15–30 second dramatic beat into 4–12 continuous 5-second shots with film coverage and per-shot hybrid modes (`dialogue`, `action`, `camera`, `hero`). Phase 3 groups clips by GPU engine (`still-motion → lipsync → ltxv-distilled → freevideo-h3`) and skips end-frame generation on dialogue/camera shots to eliminate VRAM thrashing.
+- **5-Step Creation Wizard:** Guided creation flow from story idea → interactive 20-second style previews → AI cast & location proposals → format & duration presets (`35s Shorts`, `5m Short`, `30m / 40m 480p Series`) → live hybrid time & disk estimates.
 
 ### Visual Consistency & Multi-Character Dialogue
 - **Reusable Ingredients (Characters, Locations & Props):** Generate or upload reference sheets once and link them to one or more series. ShortsFlow passes references directly into diffusion conditioning (`ReferenceLatent` / `FreeVideo` references) for visual continuity.
@@ -111,7 +112,8 @@ ShortsFlow is **Bring Your Own Models (BYOM)** — no model weights are bundled 
 | **Fast (Draft)** | FLUX.2 `[klein]` 4B FP8 | LTX-Video 0.9.8 Distilled FP8 | ~1.5–2 min / scene | Rapid iteration & storyboarding |
 | **Balanced *(Recommended)*** | FLUX.2 `[klein]` 4B FP8 | MiniMax H3 INT8 *(FreeVideo + step-cache)* | ~3.5 min / scene | Episodic series & high motion fidelity |
 | **High (Cinematic)** | Qwen-Image-2.1 Turbo INT8 | MiniMax H3 INT8 *(FreeVideo + step-cache)* | ~12 min / scene | Maximum detail hero shots |
-| **Still Motion** | Any image model | FFmpeg Ken Burns motion | ~30 sec / scene | Explainers & ultra-fast drafts |
+| **Hybrid Long-Form (480p)** | FLUX.2 `[klein]` 4B FP8 *(1 frame on dialogue/camera)* | Per-shot: `dialogue` (Lip-Sync CLI) + `action` (LTX-Video 480p) + `camera` (FFmpeg) + `hero` (H3) | ~1–1.5 hrs / 30-min ep *(360 shots)* | 30–40 min realistic 480p TV episodes |
+| **Still Motion** | Any image model | FFmpeg Ken Burns / directional cinema motion | ~10–30 sec / scene | Explainers, establishing shots & ultra-fast drafts |
 
 ---
 
@@ -158,7 +160,10 @@ Edit `.env` to point to your local ComfyUI, Ollama, and optional FreeVideo / Pip
 | `STUDIO_COMFY_URL` | `http://127.0.0.1:8188` | Running ComfyUI server URL |
 | `STUDIO_COMFY_ROOT` | `../ComfyUI-local` | Path to local ComfyUI folder (for model discovery & 1-click start) |
 | `STUDIO_FREEVIDEO_ROOT` | `../FreeVideo-local` | Optional path to local FreeVideo installation |
+| `STUDIO_FREEVIDEO_STEP_CACHE` | `easycache-av` | FreeVideo step cache mode (`easycache-av`, `teacache`, or `none`) |
+| `STUDIO_FREEVIDEO_BASE_STEPS` | `12` | Base denoising steps for FreeVideo H3 |
 | `STUDIO_PIPER_BIN` | `piper` | Optional path to external Piper TTS CLI executable |
+| `STUDIO_LIPSYNC_CMD` | *(empty)* | Optional external lip-sync CLI template (e.g. MuseTalk / LivePortrait) with `{image} {audio} {output} {width} {height} {duration}` placeholders; falls back cleanly to subtle portrait motion when unset |
 
 ### 3. Build Frontend & Launch
 
@@ -176,7 +181,7 @@ Open **[http://127.0.0.1:8010](http://127.0.0.1:8010)** in your browser.
 ### 4. Development Mode & Tests
 
 ```bash
-# Run backend test suite (21 unit & integration tests)
+# Run backend test suite
 pytest -v
 
 # Run frontend with Vite hot reload (proxies /api to :8010)
@@ -200,7 +205,7 @@ ShortsFlow/
 │   ├── llm.py                  # OpenAI-compatible structured JSON LLM client
 │   ├── media.py                # Out-of-process Piper CLI TTS, BGM synth & style presets
 │   ├── models.py               # Installed engine/model discovery & voice registry
-│   ├── style_examples.py       # 8 curated visual styles + 20s TR/EN demo generator
+│   ├── style_examples.py       # 10 curated visual styles + 20s TR/EN demo generator
 │   └── system_info.py          # Service health, GPU/RAM/Disk telemetry & cache tools
 ├── frontend/                   # React 18 + React Router + Vite Studio UI
 │   └── src/
@@ -232,6 +237,7 @@ This repository **does not include or redistribute** any third-party engines, AI
 | **FFmpeg** | External CLI subprocess | LGPL / GPL | System binary |
 | **Piper TTS** | External CLI subprocess | GPL-3.0-or-later | Invoked strictly out-of-process via CLI (`STUDIO_PIPER_BIN`) |
 | **Kokoro-82M** (`kokoro-onnx`) | External CPU subprocess *(optional)* | **Apache-2.0** *(weights)* / MIT *(wrapper)* | 11 natural studio voices (EN/FR/ES/IT/PT), zero VRAM, 1-click download in Assets |
+| **External Lip-Sync CLI** *(MuseTalk / LivePortrait)* | External CLI subprocess *(optional)* | Upstream license *(e.g. MIT)* | Invoked strictly out-of-process via `STUDIO_LIPSYNC_CMD`; no weights bundled |
 | **Qwen3-VL-8B-Instruct** | Model weights *(user-supplied)* | **Apache-2.0** | Commercial & open-source friendly |
 | **FLUX.2 `[klein]` 4B** | Model weights *(user-supplied)* | **Apache-2.0** | Commercial & open-source friendly *(9B / dev variants are non-commercial)* |
 | **LTX-Video 0.9.8** | Model weights *(user-supplied)* | LTX Open Weights / Community | Commercial free under revenue cap; review Lightricks terms |
@@ -246,6 +252,7 @@ This repository **does not include or redistribute** any third-party engines, AI
 - [ ] Full English / Turkish UI locale switcher (currently UI defaults to Turkish with multilingual content output)
 - [ ] Optional Docker Compose setup for Linux GPU hosts
 - [x] Additional open-source TTS backend (**Kokoro-82M** Apache-2.0 studio voices)
+- [x] Long-form 480p realistic series mode, hybrid per-shot engine & scene-block expander
 - [ ] Scene-level timeline waveform scrubbing & custom subtitle font/position controls
 - [ ] Automated social publishing integrations (YouTube Data API draft upload)
 

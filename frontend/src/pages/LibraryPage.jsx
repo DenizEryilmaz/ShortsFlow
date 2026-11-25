@@ -86,7 +86,8 @@ export default function LibraryPage() {
         <select value={ratioFilter} onChange={e => setRatioFilter(e.target.value)} aria-label="Format filtresi">
           <option value="all">Tüm formatlar</option>
           <option value="9:16">9:16 Dikey</option>
-          <option value="16:9">16:9 Yatay</option>
+          <option value="16:9">16:9 Yatay (1080p)</option>
+          <option value="16:9-480p">16:9 · 480p Dizi</option>
           <option value="1:1">1:1 Kare</option>
         </select>
       </div>

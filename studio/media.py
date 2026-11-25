@@ -90,13 +90,34 @@ STYLE_CATALOG = [
         "default_preview": "/styles/pixel_retro.svg",
         "sample_subject": "A twilight pixel-art mountain cabin with a glowing warm window under a starry purple sky",
     },
+    {
+        "id": "realistic_35mm",
+        "name": "Sinematik Fotogerçekçi (35mm)",
+        "tagline": "Gerçek kamera, 35mm sinema lensi ve doğal film dokusu",
+        "description": "Canlı aksiyon TV dizileri için ARRI Alexa sinematografisi, doğal cilt dokusu, sığ alan derinliği ve gerçekçi ışık.",
+        "prompt": "photorealistic 35mm cinema film still, shot on ARRI Alexa, natural skin texture, subtle film grain, shallow depth of field, authentic live-action TV drama lighting",
+        "palette": ["#141923", "#2d3c4e", "#c98b54", "#e7d8c3"],
+        "default_preview": "/styles/realistic_35mm.svg",
+        "sample_subject": "A rainy nocturnal city cafe seen through glass, warm tungsten table lamps reflecting on wet cobblestone street outside",
+    },
+    {
+        "id": "documentary_4k",
+        "name": "Belgesel · Doğal Kamera",
+        "tagline": "Doğal gün ışığı, gerçekçi belgesel ve haber kamerası görünümü",
+        "description": "Abartısız renkler, keskin optik odak, doğal dış/iç mekan ışığı ile gerçek hayat belgesel ve anlatım çekimleri.",
+        "prompt": "authentic natural-light documentary film still, crisp 50mm lens, true-to-life colors, candid real-world cinematography, natural shadows",
+        "palette": ["#1c262b", "#455a64", "#8d99ae", "#edf2f4"],
+        "default_preview": "/styles/documentary_4k.svg",
+        "sample_subject": "A bustling sunlit coastal harbor at golden morning hour, fishermen preparing wooden boats beside calm turquoise water",
+    },
 ]
 
 STYLE_PRESETS = {item["id"]: item["prompt"] for item in STYLE_CATALOG}
 
 ASPECT_RATIOS = {
     "9:16": {"label": "9:16 Dikey (Shorts / Reels)", "width": 448, "height": 768, "out_width": 1080, "out_height": 1920},
-    "16:9": {"label": "16:9 Yatay (YouTube)", "width": 768, "height": 448, "out_width": 1920, "out_height": 1080},
+    "16:9": {"label": "16:9 Yatay (YouTube 1080p)", "width": 768, "height": 448, "out_width": 1920, "out_height": 1080},
+    "16:9-480p": {"label": "16:9 · 480p Hızlı Dizi (832×480)", "width": 832, "height": 480, "out_width": 854, "out_height": 480},
     "1:1": {"label": "1:1 Kare (Sosyal medya)", "width": 576, "height": 576, "out_width": 1080, "out_height": 1080},
 }
 

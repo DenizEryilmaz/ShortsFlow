@@ -450,6 +450,7 @@ def test_ingredients_bgm_aspect_ratios_and_export_zip(tmp_path):
 
     # 6. Aspect ratio delivery dimensions + export.zip bundle
     assert pipeline._delivery_size({'aspect_ratio': '16:9'}) == (1920, 1080)
+    assert pipeline._delivery_size({'aspect_ratio': '16:9-480p'}) == (854, 480)
     assert pipeline._delivery_size({'aspect_ratio': '1:1'}) == (1080, 1080)
     assert pipeline._delivery_size({'aspect_ratio': '9:16'}) == (1080, 1920)
 
@@ -468,9 +469,11 @@ def test_ingredients_bgm_aspect_ratios_and_export_zip(tmp_path):
         assert 'captions.srt' in names
         assert 'scenes/scene-01.mp4' in names
 
-    # 8 style 20s example projects
+    # 10 style 20s example projects (including realistic_35mm & documentary_4k)
     styles_res = client.get('/api/studio/styles').json()['styles']
-    assert len(styles_res) == 8
+    assert len(styles_res) == 10
+    style_ids = {item['id'] for item in styles_res}
+    assert 'realistic_35mm' in style_ids and 'documentary_4k' in style_ids
     for item in styles_res:
         ex = item['example']
         assert ex is not None
@@ -591,3 +594,190 @@ def test_series_migration_inheritance_queue_reorder_and_system_status(tmp_path):
     sys_st = client.get('/api/studio/system/status')
     assert sys_st.status_code == 200
     assert 'services' in sys_st.json() and 'hardware' in sys_st.json()
+
+
+def test_longform_480p_hybrid_engine_estimate_and_lipsync_fallback(client, monkeypatch, tmp_path):
+    client, store = client
+    import studio.pipeline as pipeline
+    import studio.providers as providers
+
+    # Long-form 40-min 480p realistic project schema validation
+    project = Project(
+        name='Gece Nöbeti · Bölüm 01',
+        style='realistic_35mm',
+        duration=2400,
+        scene_count=400,
+        settings={
+            'aspect_ratio': '16:9-480p',
+            'width': 832,
+            'height': 480,
+            'video': 'ltxv-distilled',
+        },
+        script={
+            'title': 'Gece Nöbeti',
+            'scenes': [
+                {'id': 's1', 'title': 'Giriş', 'scene_group': 'Sahne 1 · Hastane', 'shot_mode': 'camera', 'duration': 5, 'camera_move': 'push'},
+                {'id': 's2', 'title': 'Soru', 'scene_group': 'Sahne 1 · Hastane', 'shot_mode': 'dialogue', 'duration': 5},
+                {'id': 's3', 'title': 'Koşu', 'scene_group': 'Sahne 1 · Hastane', 'shot_mode': 'action', 'duration': 5},
+                {'id': 's4', 'title': 'Final', 'scene_group': 'Sahne 1 · Hastane', 'shot_mode': 'hero', 'duration': 5},
+                {'id': 's5', 'title': 'Otomatik', 'scene_group': 'Sahne 1 · Hastane', 'shot_mode': 'auto', 'duration': 5},
+            ],
+        },
+    ).model_dump()
+    saved = client.post('/api/studio/documents/project', json={'data': project})
+    assert saved.status_code == 200
+    scenes = saved.json()['data']['script']['scenes']
+    assert scenes[0]['scene_group'] == 'Sahne 1 · Hastane'
+    assert [s['shot_mode'] for s in scenes] == ['camera', 'dialogue', 'action', 'hero', 'auto']
+
+    # Hybrid per-shot engine resolver
+    snapshot = {
+        'models': [
+            {'id': 'ltxv-distilled', 'kind': 'video', 'ready': True},
+            {'id': 'freevideo-h3', 'kind': 'video', 'ready': True},
+        ]
+    }
+    settings = saved.json()['data']['settings']
+    assert pipeline._resolve_shot_engine(scenes[0], settings, snapshot) == 'still-motion'
+    assert pipeline._resolve_shot_engine(scenes[1], settings, snapshot) == 'lipsync'
+    assert pipeline._resolve_shot_engine(scenes[2], settings, snapshot) == 'ltxv-distilled'
+    assert pipeline._resolve_shot_engine(scenes[3], settings, snapshot) == 'freevideo-h3'
+    assert pipeline._resolve_shot_engine(scenes[4], settings, snapshot) == 'ltxv-distilled'
+
+    # Hybrid 480p ETA is dramatically faster than full non-hybrid 1080p FreeVideo
+    est_hybrid = client.get('/api/studio/estimate?episodes=1&scenes=360&image=flux2-klein-4b&video=ltxv-distilled&aspect_ratio=16:9-480p&hybrid=true')
+    est_full = client.get('/api/studio/estimate?episodes=1&scenes=360&image=flux2-klein-4b&video=freevideo-h3&aspect_ratio=16:9&hybrid=false')
+    assert est_hybrid.status_code == 200 and est_full.status_code == 200
+    assert est_hybrid.json()['total_seconds'] < est_full.json()['total_seconds'] / 4
+
+    # Store job estimator recognizes hybrid per-shot mix
+    job_sec = store.estimate_job_seconds('render', {'project': saved.json()['data']})
+    assert job_sec > 0
+
+    # Lip-sync falls back gracefully to camera_motion_video when STUDIO_LIPSYNC_CMD is unset
+    monkeypatch.delenv('STUDIO_LIPSYNC_CMD', raising=False)
+    assert providers.lipsync_configured() is False
+    called = {}
+
+    def fake_camera_motion(image, duration, out, settings, *, camera_move='static', log_path=None, cancel_check=None):
+        called['camera_move'] = camera_move
+        called['duration'] = duration
+        out.write_bytes(b'fake-mp4')
+
+    monkeypatch.setattr(providers, 'camera_motion_video', fake_camera_motion)
+    out_mp4 = tmp_path / 'dialog.mp4'
+    providers.lipsync_video(tmp_path / 'first.png', None, 5.0, out_mp4, settings)
+    assert out_mp4.is_file()
+    assert called['camera_move'] == 'static'
+    assert called['duration'] == 5.0
+
+
+def test_expand_scene_block_appends_shots_and_validates_limit(client, monkeypatch):
+    client, _ = client
+    import studio.routes as routes
+
+    char = client.post(
+        '/api/studio/documents/character',
+        json={'data': {'name': 'Komiser Selim', 'ingredient_type': 'character', 'description': 'Weathered detective in trench coat', 'style': 'realistic_35mm'}},
+    ).json()
+    proj = Project(
+        name='Karanlık Liman · Bölüm 01',
+        style='realistic_35mm',
+        duration=20,
+        character_ids=[char['id']],
+        settings={'aspect_ratio': '16:9-480p', 'width': 832, 'height': 480, 'language': 'tr'},
+    ).model_dump()
+    saved = client.post('/api/studio/documents/project', json={'data': proj}).json()
+
+    monkeypatch.setattr(routes.providers, 'release_script_model', lambda _m: None)
+    monkeypatch.setattr(
+        routes.llm,
+        'generate_json',
+        lambda prompt, schema, model=None: (
+            {
+                'scene_group': 'Sahne 1 · Yağmurlu İskele',
+                'shots': [
+                    {
+                        'title': 'İskele Genel',
+                        'shot_mode': 'camera',
+                        'duration': 5,
+                        'narration': 'Yağmur limanın taşlarını yıkıyordu.',
+                        'caption': 'Limanda yağmur.',
+                        'shot_size': 'establishing',
+                        'camera_move': 'pan_right',
+                        'visual_prompt': 'Rainy misty harbor pier at dusk, 35mm cinema still',
+                        'end_prompt': 'Pier lamps reflected in wet cobblestones',
+                        'motion_prompt': 'Slow pan across foggy pier',
+                        'character_ids': [char['id'], 'unknown-id'],
+                        'speaker_id': 'unknown-id',
+                    },
+                    {
+                        'title': 'Selim Yakın Plan',
+                        'shot_mode': 'dialogue',
+                        'duration': 5,
+                        'narration': 'Bu dosyayı bu gece kapatıyoruz.',
+                        'caption': 'Bu gece bitiyor.',
+                        'shot_size': 'closeup',
+                        'camera_move': 'static',
+                        'visual_prompt': 'Close-up of Detective Selim under rain, shallow depth of field',
+                        'end_prompt': 'Detective narrows eyes looking off-camera',
+                        'motion_prompt': 'Subtle head turn and speech',
+                        'character_ids': [char['id']],
+                        'speaker_id': char['id'],
+                    },
+                    {
+                        'title': 'Depo Kapısı',
+                        'shot_mode': 'action',
+                        'duration': 5,
+                        'narration': 'Ağır demir kapı gıcırtıyla açıldı.',
+                        'caption': 'Kapı açılıyor.',
+                        'shot_size': 'medium',
+                        'camera_move': 'tracking',
+                        'visual_prompt': 'Detective pushing open rusty warehouse door',
+                        'end_prompt': 'Door swings wide revealing dim warehouse interior',
+                        'motion_prompt': 'Tracking shot following detective stepping inside',
+                        'character_ids': [char['id']],
+                        'speaker_id': '',
+                    },
+                    {
+                        'title': 'Karanlık Koridor',
+                        'shot_mode': 'hero',
+                        'duration': 5,
+                        'narration': 'İçeride sadece tek bir lamba yanıyordu.',
+                        'caption': 'Tek bir ışık.',
+                        'shot_size': 'wide',
+                        'camera_move': 'push',
+                        'visual_prompt': 'Long warehouse corridor lit by swinging tungsten bulb',
+                        'end_prompt': 'Silhouette steps into the pool of light',
+                        'motion_prompt': 'Slow push-in down atmospheric corridor',
+                        'character_ids': [char['id']],
+                        'speaker_id': '',
+                    },
+                ],
+            },
+            {},
+        ),
+    )
+
+    resp = client.post(
+        f'/api/studio/projects/{saved["id"]}/expand-block',
+        json={
+            'scene_group': 'Sahne 1 · Yağmurlu İskele',
+            'summary': 'Komiser Selim yağmurlu iskelede depoya girer.',
+            'duration': 20,
+            'shot_count': 4,
+            'hybrid': True,
+        },
+    )
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert len(payload['added_shots']) == 4
+    assert payload['project']['revision'] == saved['revision'] + 1
+    shots = payload['project']['data']['script']['scenes']
+    assert len(shots) == 4
+    assert all(s['scene_group'] == 'Sahne 1 · Yağmurlu İskele' for s in shots)
+    assert [s['shot_mode'] for s in shots] == ['camera', 'dialogue', 'action', 'hero']
+    # Foreign/unknown character_ids and speaker_id are stripped cleanly
+    assert shots[0]['character_ids'] == [char['id']]
+    assert shots[0]['speaker_id'] == ''
+    assert shots[1]['speaker_id'] == char['id']

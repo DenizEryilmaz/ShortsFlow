@@ -304,8 +304,9 @@ class Store:
         settings = proj.get('settings') or snap.get('settings') or {}
         img = settings.get('image', 'flux2-klein-4b')
         vid = settings.get('video', 'freevideo-h3')
-        img_sec = 24 if img == 'flux2-klein-4b' else 240
-        vid_sec = 75 if vid == 'ltxv-distilled' else (5 if vid == 'still-motion' else 195)
+        is_480p = settings.get('aspect_ratio') == '16:9-480p'
+        img_sec = (14 if is_480p else 24) if img == 'flux2-klein-4b' else 240
+        vid_sec = (40 if is_480p else 75) if vid == 'ltxv-distilled' else (5 if vid == 'still-motion' else 195)
         if kind in ('script', 'scene_rewrite'):
             return 25
         if kind == 'character':
@@ -333,12 +334,21 @@ class Store:
         n = max(1, len(scenes) or int(proj.get('scene_count') or 4))
         pending_cost = 0
         for sc in scenes:
+            smode = (sc.get('shot_mode') or 'auto').strip().lower()
+            sc_vid = (
+                8 if smode == 'dialogue'
+                else 4 if smode == 'camera'
+                else (40 if is_480p else 75) if smode == 'action'
+                else 195 if smode == 'hero'
+                else vid_sec
+            )
+            needs_end = smode not in ('dialogue', 'camera') and bool(sc.get('end_prompt'))
             if not sc.get('first_asset'):
                 pending_cost += img_sec
-            if sc.get('end_prompt') and not sc.get('last_asset'):
+            if needs_end and not sc.get('last_asset'):
                 pending_cost += img_sec
             if not sc.get('clip_asset'):
-                pending_cost += vid_sec
+                pending_cost += sc_vid
         if not scenes:
             pending_cost = n * (2 * img_sec + vid_sec)
         return pending_cost + 25

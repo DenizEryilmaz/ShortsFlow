@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0e1420"/>
+      <stop offset="55%" stop-color="#1f2d42"/>
+      <stop offset="100%" stop-color="#3c2a21"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="72%" cy="42%" r="48%">
+      <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="640" height="400" fill="url(#bg)"/>
+  <rect width="640" height="400" fill="url(#glow)"/>
+  <rect x="0" y="0" width="640" height="36" fill="#05070b" fill-opacity="0.72"/>
+  <rect x="0" y="364" width="640" height="36" fill="#05070b" fill-opacity="0.72"/>
+  <circle cx="460" cy="175" r="78" fill="none" stroke="#e7d8c3" stroke-opacity="0.28" stroke-width="2"/>
+  <circle cx="460" cy="175" r="46" fill="none" stroke="#f59e0b" stroke-opacity="0.45" stroke-width="1.5"/>
+  <text x="44" y="295" fill="#f3f5fa" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="700">35mm Cinema</text>
+  <text x="44" y="328" fill="#c98b54" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="600">PHOTOREALISTIC LIVE-ACTION · 480P / 1080P</text>
+</svg>

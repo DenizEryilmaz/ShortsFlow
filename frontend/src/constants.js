@@ -106,8 +106,25 @@ export const LANGUAGES = {
 
 export const ASPECT_RATIOS = {
   '9:16': { label: '9:16 Dikey · Shorts / Reels', width: 448, height: 768, delivery: '1080×1920' },
-  '16:9': { label: '16:9 Yatay · YouTube', width: 768, height: 448, delivery: '1920×1080' },
+  '16:9': { label: '16:9 Yatay · YouTube 1080p', width: 768, height: 448, delivery: '1920×1080' },
+  '16:9-480p': { label: '16:9 · 480p Hızlı Dizi (832×480)', width: 832, height: 480, delivery: '854×480' },
   '1:1': { label: '1:1 Kare · Sosyal Medya', width: 576, height: 576, delivery: '1080×1080' },
+};
+
+export const SHOT_MODES = {
+  auto: 'Otomatik (Bölüm varsayılanı)',
+  dialogue: 'Diyalog · Dudak Senkronu (~15 sn)',
+  action: 'Hareket · 480p Hızlı AI (~40 sn)',
+  camera: 'Kurucu · Sinematik Kamera (~10 sn)',
+  hero: 'Hero · Yüksek Kalite (~3 dk)',
+};
+
+export const SHOT_MODE_BADGE = {
+  auto: '',
+  dialogue: 'Diyalog',
+  action: 'Hareket',
+  camera: 'Kamera',
+  hero: 'Hero',
 };
 
 export const QUALITY_PROFILES = [
@@ -148,6 +165,8 @@ export const KIND_LABELS = {
 export const emptyScene = (duration = 5) => ({
   id: crypto.randomUUID(),
   title: '',
+  scene_group: '',
+  shot_mode: 'auto',
   duration,
   narration: '',
   caption: '',

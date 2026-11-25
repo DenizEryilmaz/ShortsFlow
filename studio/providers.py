@@ -613,5 +613,86 @@ def movie_duration(path):
     return float(result.stdout)
 
 
+def lipsync_configured() -> bool:
+    import os
+    return bool(os.getenv('STUDIO_LIPSYNC_CMD', '').strip())
+
+
+def camera_motion_video(
+    first,
+    duration,
+    output,
+    settings,
+    camera_move='push',
+    *,
+    log_path=None,
+    cancel_check=None,
+):
+    """Render a smooth 24fps cinema camera move from a keyframe using FFmpeg (zero VRAM)."""
+    frames = max(24, round(float(duration) * 24))
+    w, h = int(settings['width']), int(settings['height'])
+    move = (camera_move or 'push').strip().lower()
+    if move == 'pull':
+        zp = f"zoompan=z='max(1.0,1.07-0.07*on/{frames})':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={w}x{h}:fps=24"
+    elif move == 'pan_left':
+        zp = f"zoompan=z='1.08':x='(iw-iw/zoom)*(1-on/{frames})':y='ih/2-(ih/zoom/2)':d=1:s={w}x{h}:fps=24"
+    elif move == 'pan_right' or move == 'tracking':
+        zp = f"zoompan=z='1.08':x='(iw-iw/zoom)*(on/{frames})':y='ih/2-(ih/zoom/2)':d=1:s={w}x{h}:fps=24"
+    elif move == 'tilt_up':
+        zp = f"zoompan=z='1.08':x='iw/2-(iw/zoom/2)':y='(ih-ih/zoom)*(1-on/{frames})':d=1:s={w}x{h}:fps=24"
+    elif move == 'tilt_down':
+        zp = f"zoompan=z='1.08':x='iw/2-(iw/zoom/2)':y='(ih-ih/zoom)*(on/{frames})':d=1:s={w}x{h}:fps=24"
+    elif move == 'static':
+        zp = f"zoompan=z='1+0.015*on/{frames}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={w}x{h}:fps=24"
+    else:
+        zp = f"zoompan=z='1+0.06*on/{frames}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={w}x{h}:fps=24"
+    run(
+        [
+            'ffmpeg', '-y', '-loop', '1', '-i', str(first), '-t', str(duration),
+            '-vf', f'scale={w * 2}:{h * 2}:force_original_aspect_ratio=increase,crop={w * 2}:{h * 2},{zp},format=yuv420p',
+            '-c:v', 'libx264', '-preset', 'fast', '-crf', '19', str(output),
+        ],
+        log_path=log_path,
+        cancel_check=cancel_check,
+    )
+
+
+def lipsync_video(
+    first,
+    audio_path,
+    duration,
+    output,
+    settings,
+    *,
+    on_progress=None,
+    log_path=None,
+    cancel_check=None,
+):
+    """Animate a talking character frame synced to audio via external MuseTalk/LivePortrait CLI (if configured),
+    falling back gracefully to subtle portrait camera motion when no external lip-sync binary is configured."""
+    import os
+    import shlex
+
+    template = os.getenv('STUDIO_LIPSYNC_CMD', '').strip()
+    if template and audio_path and Path(audio_path).is_file():
+        if on_progress:
+            on_progress('Dudak senkronlu konuşma klibi üretiliyor (harici motor)…')
+        values = {
+            'image': str(Path(first).resolve()),
+            'audio': str(Path(audio_path).resolve()),
+            'output': str(Path(output).resolve()),
+            'width': str(int(settings['width'])),
+            'height': str(int(settings['height'])),
+            'duration': str(duration),
+        }
+        tokens = [tok.format(**values) for tok in shlex.split(template, posix=(os.name != 'nt'))]
+        run(tokens, timeout=900, log_path=log_path, on_progress=on_progress, cancel_check=cancel_check)
+        if Path(output).is_file() and Path(output).stat().st_size > 1000:
+            return
+    if on_progress:
+        on_progress('Hızlı diyalog portre hareketi uygulanıyor (STUDIO_LIPSYNC_CMD tanımlı değil)…')
+    camera_motion_video(first, duration, output, settings, camera_move='static', log_path=log_path, cancel_check=cancel_check)
+
+
 def hyperframes_cli():
     return WORKSPACE / 'hyperframes-tool' / 'node_modules' / 'hyperframes' / 'bin' / 'hyperframes.mjs'

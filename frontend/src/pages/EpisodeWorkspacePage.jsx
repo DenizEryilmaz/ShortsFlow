@@ -9,7 +9,7 @@ import { apiJson, getApiUrl } from '../api';
 import {
   API, ASPECT_RATIOS, BGM_PRESETS, CAMERA_MOVES, CAPTION_STYLES, defaultSettings,
   emptyScene, formatEta, INGREDIENT_TYPES, LANGUAGES, mediaUrl, requestJson,
-  SHOT_SIZES, textSig, TRANSITIONS,
+  SHOT_MODE_BADGE, SHOT_MODES, SHOT_SIZES, textSig, TRANSITIONS,
 } from '../constants';
 import { useStudio } from '../context/StudioContext';
 import DeliveryTheater from '../components/DeliveryTheater';
@@ -51,6 +51,12 @@ export default function EpisodeWorkspacePage() {
   const [busyAction, setBusyAction] = useState('');
   const [installingVoice, setInstallingVoice] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showBlockComposer, setShowBlockComposer] = useState(false);
+  const [blockTitle, setBlockTitle] = useState('');
+  const [blockSummary, setBlockSummary] = useState('');
+  const [blockDuration, setBlockDuration] = useState(20);
+  const [blockShots, setBlockShots] = useState(4);
+  const [blockHybrid, setBlockHybrid] = useState(true);
   const [estimate, setEstimate] = useState(null);
   const [bgmPreview, setBgmPreview] = useState('');
 
@@ -172,13 +178,15 @@ export default function EpisodeWorkspacePage() {
   // Fetch ETA estimate when step === 'deliver' or model changes
   useEffect(() => {
     if (!draft) return;
-    const sc = scenes.length || draft.scene_count || Math.max(3, Math.round((draft.duration || 30) / 6));
+    const sc = scenes.length || draft.scene_count || Math.max(3, Math.round((draft.duration || 30) / 5));
     const img = draft.settings?.image || 'flux2-klein-4b';
     const vid = draft.settings?.video || 'freevideo-h3';
-    apiJson(`${API}/estimate?episodes=1&scenes=${sc}&image=${encodeURIComponent(img)}&video=${encodeURIComponent(vid)}`)
+    const ratio = draft.settings?.aspect_ratio || '9:16';
+    const isHybrid = scenes.some(s => s.shot_mode && s.shot_mode !== 'auto') || (draft.duration || 0) >= 300;
+    apiJson(`${API}/estimate?episodes=1&scenes=${sc}&image=${encodeURIComponent(img)}&video=${encodeURIComponent(vid)}&aspect_ratio=${encodeURIComponent(ratio)}&hybrid=${isHybrid}`)
       .then(setEstimate)
       .catch(() => {});
-  }, [draft?.settings?.image, draft?.settings?.video, draft?.duration, draft?.scene_count, scenes.length]);
+  }, [draft?.settings?.image, draft?.settings?.video, draft?.settings?.aspect_ratio, draft?.duration, draft?.scene_count, scenes]);
 
   const seriesCastIds = useMemo(() => {
     if (!seriesRow) return [];
@@ -393,6 +401,36 @@ export default function EpisodeWorkspacePage() {
     }
   };
 
+  const handleExpandBlock = async () => {
+    if (!blockTitle.trim() || blockSummary.trim().length < 5) {
+      addToast('Sahne bloğu adı ve kısa özetini girin.', 'err');
+      return;
+    }
+    setBusyAction('expand_block');
+    try {
+      if (dirtyRef.current) {
+        const saved = await persistNow(draft, false);
+        if (!saved) return;
+      }
+      const res = await apiJson(`${API}/projects/${episodeId}/expand-block`, requestJson('POST', {
+        scene_group: blockTitle.trim(),
+        summary: blockSummary.trim(),
+        duration: Number(blockDuration) || 20,
+        shot_count: Number(blockShots) || 4,
+        hybrid: blockHybrid,
+      }));
+      await refreshLibrary();
+      setBlockTitle('');
+      setBlockSummary('');
+      setShowBlockComposer(false);
+      addToast(`"${blockTitle.trim()}" bloğu ${res.added_shots?.length || blockShots} plana bölünüp eklendi!`, 'ok');
+    } catch (err) {
+      addToast(err.detail || err.message || 'Sahne bloğu oluşturulamadı.', 'err');
+    } finally {
+      setBusyAction('');
+    }
+  };
+
   const handleDeleteEpisode = async () => {
     const ok = await deleteDoc(episodeId, draft.name);
     if (ok) navigate(seriesRow ? `/series/${seriesRow.id}` : '/series');
@@ -509,23 +547,23 @@ export default function EpisodeWorkspacePage() {
                 </select>
               </label>
               <label className="st-field">
-                <span>Hedef süre (sn)</span>
+                <span>Hedef süre (sn · 2400 sn = 40 dk)</span>
                 <input
                   type="number"
                   min={8}
-                  max={180}
+                  max={2700}
                   value={draft.duration}
-                  onChange={e => applyDraft(cur => ({ ...cur, duration: Math.max(8, Number(e.target.value) || 30) }))}
+                  onChange={e => applyDraft(cur => ({ ...cur, duration: Math.max(8, Math.min(2700, Number(e.target.value) || 30)) }))}
                 />
               </label>
               <label className="st-field">
-                <span>Sahne sayısı (0 = otomatik)</span>
+                <span>Plan sayısı (0 = otomatik · maks 600)</span>
                 <input
                   type="number"
                   min={0}
-                  max={20}
+                  max={600}
                   value={draft.scene_count || 0}
-                  onChange={e => applyDraft(cur => ({ ...cur, scene_count: Math.max(0, Number(e.target.value) || 0) }))}
+                  onChange={e => applyDraft(cur => ({ ...cur, scene_count: Math.max(0, Math.min(600, Number(e.target.value) || 0)) }))}
                 />
               </label>
               <label className="st-field">
@@ -681,11 +719,77 @@ export default function EpisodeWorkspacePage() {
                 >
                   <Clapperboard size={14} />Tek Tıkla Tam Bölüm Üret
                 </button>
+                <button type="button" className="st-btn" onClick={() => setShowBlockComposer(v => !v)}>
+                  <Wand2 size={14} />Sahne Bloğu Ekle (20 sn · 4 Plan AI)
+                </button>
                 <button type="button" className="st-btn" onClick={addScene}>
-                  <Plus size={14} />Elle Sahne Ekle
+                  <Plus size={14} />Elle Plan Ekle
                 </button>
               </div>
             </div>
+
+            {showBlockComposer && (
+              <div className="st-collapse-body" style={{ marginBottom: 14 }}>
+                <div className="st-row-between" style={{ marginBottom: 10 }}>
+                  <strong>Uzun Bölüm Sahne Bloğu Genişletici (4×5 sn Hibrit Planlar)</strong>
+                  <button type="button" className="st-btn st-btn-sm" onClick={() => setShowBlockComposer(false)}>Kapat</button>
+                </div>
+                <div className="st-form-grid three">
+                  <label className="st-field">
+                    <span>Sahne bloğu adı</span>
+                    <input
+                      placeholder="Örn: Sahne 3 · Ofis Yüzleşmesi"
+                      value={blockTitle}
+                      onChange={e => setBlockTitle(e.target.value)}
+                    />
+                  </label>
+                  <label className="st-field">
+                    <span>Blok süresi (sn)</span>
+                    <input
+                      type="number"
+                      min={5}
+                      max={60}
+                      value={blockDuration}
+                      onChange={e => setBlockDuration(Math.max(5, Math.min(60, Number(e.target.value) || 20)))}
+                    />
+                  </label>
+                  <label className="st-field">
+                    <span>Plan sayısı (5 sn’lik parçalar)</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={12}
+                      value={blockShots}
+                      onChange={e => setBlockShots(Math.max(1, Math.min(12, Number(e.target.value) || 4)))}
+                    />
+                  </label>
+                </div>
+                <label className="st-field" style={{ marginTop: 8 }}>
+                  <span>Bu 15–30 saniyelik sahnede neler oluyor?</span>
+                  <textarea
+                    rows={2}
+                    placeholder="Örn: Dedektif masaya zarfı koyar, şüpheli gerilir ve kısa bir diyalog geçer…"
+                    value={blockSummary}
+                    onChange={e => setBlockSummary(e.target.value)}
+                  />
+                </label>
+                <div className="st-row-between" style={{ marginTop: 10 }}>
+                  <label className="st-checkbox">
+                    <input type="checkbox" checked={blockHybrid} onChange={e => setBlockHybrid(e.target.checked)} />
+                    <span>Hibrit plan motorlarını (Kamera / Diyalog / Hareket) otomatik ata</span>
+                  </label>
+                  <button
+                    type="button"
+                    className="st-btn st-btn-primary st-btn-sm"
+                    disabled={busyAction === 'expand_block'}
+                    onClick={handleExpandBlock}
+                  >
+                    {busyAction === 'expand_block' ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                    Planlara Böl ve Ekle
+                  </button>
+                </div>
+              </div>
+            )}
 
             {scenes.length === 0 ? (
               <EmptyState
@@ -708,10 +812,14 @@ export default function EpisodeWorkspacePage() {
                         {sc.first_asset ? <img src={mediaUrl(sc.first_asset)} alt={sc.title} /> : <ImageIcon size={16} />}
                       </div>
                       <div className="st-scene-row-main">
-                        <strong>{sc.title || `Sahne ${idx + 1}`}</strong>
+                        <strong>
+                          {sc.scene_group ? <span className="st-muted" style={{ fontWeight: 500 }}>{sc.scene_group} · </span> : null}
+                          {sc.title || `Sahne ${idx + 1}`}
+                        </strong>
                         <p>{sc.narration || 'Seslendirme metni girilmedi…'}</p>
                       </div>
                       <div className="st-chips">
+                        {SHOT_MODE_BADGE[sc.shot_mode] && <span className="st-badge">{SHOT_MODE_BADGE[sc.shot_mode]}</span>}
                         {speaker && <span className="st-badge st-badge-accent">{speaker.data.name}</span>}
                         <span className="st-badge">{sc.duration} sn</span>
                         <span className={sc.audio_asset ? 'st-badge st-badge-ok' : 'st-badge'}>Ses</span>
@@ -1023,9 +1131,9 @@ export default function EpisodeWorkspacePage() {
                       <input
                         type="number"
                         min={2}
-                        max={20}
+                        max={30}
                         value={activeScene.duration || 5}
-                        onChange={e => updateActiveScene({ duration: Math.max(2, Number(e.target.value) || 5) })}
+                        onChange={e => updateActiveScene({ duration: Math.max(2, Math.min(30, Number(e.target.value) || 5)) })}
                       />
                     </label>
                     <label className="st-field">
@@ -1039,6 +1147,26 @@ export default function EpisodeWorkspacePage() {
                           <option key={c.id} value={c.id}>{c.data.name}</option>
                         ))}
                       </select>
+                    </label>
+                  </div>
+
+                  <div className="st-form-grid two">
+                    <label className="st-field">
+                      <span>Plan motoru (Hibrit hızlandırma)</span>
+                      <select
+                        value={activeScene.shot_mode || 'auto'}
+                        onChange={e => updateActiveScene({ shot_mode: e.target.value })}
+                      >
+                        {Object.entries(SHOT_MODES).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+                      </select>
+                    </label>
+                    <label className="st-field">
+                      <span>Sahne grubu (opsiyonel · örn: Sahne 1)</span>
+                      <input
+                        placeholder="Örn: Sahne 1 · Kafe Buluşması"
+                        value={activeScene.scene_group || ''}
+                        onChange={e => updateActiveScene({ scene_group: e.target.value })}
+                      />
                     </label>
                   </div>
 

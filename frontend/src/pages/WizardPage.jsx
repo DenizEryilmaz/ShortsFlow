@@ -62,11 +62,12 @@ export default function WizardPage() {
 
   useEffect(() => {
     const eps = mode === 'series' ? episodeCount : 1;
-    const scenesPerEp = Math.max(4, Math.round(duration / 6));
-    apiJson(`${API}/estimate?episodes=${eps}&scenes=${scenesPerEp}&image=${encodeURIComponent(imageModel)}&video=${encodeURIComponent(videoModel)}`)
+    const scenesPerEp = Math.max(4, Math.min(600, Math.round(duration / 5)));
+    const isHybrid = duration >= 300 || aspectRatio === '16:9-480p';
+    apiJson(`${API}/estimate?episodes=${eps}&scenes=${scenesPerEp}&image=${encodeURIComponent(imageModel)}&video=${encodeURIComponent(videoModel)}&aspect_ratio=${encodeURIComponent(aspectRatio)}&hybrid=${isHybrid}`)
       .then(setEstimate)
       .catch(() => {});
-  }, [mode, episodeCount, duration, imageModel, videoModel]);
+  }, [mode, episodeCount, duration, imageModel, videoModel, aspectRatio]);
 
   const selectedStyle = styles.find(s => s.id === styleId) || styles[0];
 
@@ -325,14 +326,35 @@ export default function WizardPage() {
                 </label>
               )}
               <label className="st-field">
-                <span>Bölüm süresi (sn)</span>
+                <span>Bölüm süresi (sn · 1800 sn = 30 dk)</span>
                 <input
                   type="number"
                   min={10}
-                  max={120}
+                  max={2700}
                   value={duration}
-                  onChange={e => setDuration(Math.max(10, Number(e.target.value) || 35))}
+                  onChange={e => setDuration(Math.max(10, Math.min(2700, Number(e.target.value) || 35)))}
                 />
+                <div className="st-chips" style={{ marginTop: 4 }}>
+                  {[
+                    { label: '35 sn Shorts', sec: 35, ratio: '9:16' },
+                    { label: '5 dk Kısa', sec: 300, ratio: '16:9-480p' },
+                    { label: '30 dk Dizi (480p)', sec: 1800, ratio: '16:9-480p' },
+                    { label: '40 dk Dizi (480p)', sec: 2400, ratio: '16:9-480p' },
+                  ].map(preset => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      className={duration === preset.sec ? 'st-btn st-btn-sm st-btn-primary' : 'st-btn st-btn-sm'}
+                      onClick={() => {
+                        setDuration(preset.sec);
+                        setAspectRatio(preset.ratio);
+                        if (preset.sec >= 300) setStyleId('realistic_35mm');
+                      }}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
               </label>
             </div>
           </div>

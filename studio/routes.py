@@ -17,7 +17,16 @@ from pydantic import BaseModel, Field, ValidationError
 from . import llm, media, providers, system_info
 from .models import WORKSPACE, catalog, install_voice, validate, voice_catalog, voice_path
 from .pipeline import DEFAULT_PROMPT, resolve_prompt, save_generated_asset
-from .schema import SCHEMAS, Project, PublishMetadata, Series, Settings, WizardCastProposal
+from .schema import (
+    SCHEMAS,
+    GeneratedSceneBlock,
+    Project,
+    PublishMetadata,
+    Scene,
+    Series,
+    Settings,
+    WizardCastProposal,
+)
 from .store import Conflict, Store
 from .style_examples import STYLE_EXAMPLES, build_style_demo_video, get_style_example, style_demo_status
 from .worker import start
@@ -46,6 +55,14 @@ class SeriesEpisodeRequest(BaseModel):
     brief: str = ''
     duration: int | None = None
     scene_count: int | None = None
+
+
+class ExpandBlockRequest(BaseModel):
+    scene_group: str = Field(min_length=1, max_length=160)
+    summary: str = Field(min_length=5, max_length=4000)
+    duration: int = Field(default=20, ge=5, le=60)
+    shot_count: int = Field(default=4, ge=1, le=12)
+    hybrid: bool = True
 
 
 class SaveRequest(BaseModel):
@@ -444,20 +461,125 @@ def router(data_root, owner_id=None):
         scenes: int = 6,
         image: str = 'flux2-klein-4b',
         video: str = 'freevideo-h3',
+        aspect_ratio: str = '9:16',
+        hybrid: bool = False,
     ):
         await owner(request)
         ep_count = max(1, min(24, episodes))
-        sc_count = max(1, min(20, scenes))
-        img_sec = 24 if image == 'flux2-klein-4b' else 240
-        vid_sec = 75 if video == 'ltxv-distilled' else (5 if video == 'still-motion' else 195)
-        per_ep_sec = sc_count * (2 * img_sec + vid_sec + 4) + 25
+        sc_count = max(1, min(600, scenes))
+        is_480p = aspect_ratio == '16:9-480p'
+        img_sec = (14 if is_480p else 24) if image == 'flux2-klein-4b' else 240
+        if hybrid:
+            # Typical TV drama mix: 65% dialogue (~8s), 25% fast action (~40s), 10% camera (~4s)
+            avg_vid = 0.65 * 8 + 0.25 * (40 if is_480p else 75) + 0.10 * 4
+            avg_frames = 0.75 * 1 + 0.25 * 2
+            per_ep_sec = round(sc_count * (avg_frames * img_sec + avg_vid + 3) + 30)
+            est_mb = round(ep_count * sc_count * (4 if is_480p else 9) + ep_count * 25)
+        else:
+            vid_sec = (40 if is_480p else 75) if video == 'ltxv-distilled' else (5 if video == 'still-motion' else 195)
+            per_ep_sec = sc_count * (2 * img_sec + vid_sec + 4) + 25
+            est_mb = round(ep_count * sc_count * (7 if is_480p else (14 if video != 'still-motion' else 3)) + ep_count * 18)
         total_sec = ep_count * per_ep_sec
-        est_mb = round(ep_count * sc_count * (14 if video != 'still-motion' else 3) + ep_count * 18)
         return {
             'per_episode_seconds': per_ep_sec,
             'total_seconds': total_sec,
             'estimated_mb': est_mb,
         }
+
+    @api.post('/projects/{identifier}/expand-block')
+    async def expand_scene_block(identifier: str, body: ExpandBlockRequest, request: Request):
+        user = await owner(request)
+        record = get(user, identifier, 'project')
+        pdata = copy.deepcopy(record['data'])
+        existing_script = pdata.get('script') or {
+            'title': pdata['name'],
+            'logline': pdata.get('brief', ''),
+            'continuity_note': '',
+            'recommended_duration': pdata.get('duration', 30),
+            'episode_plan': [],
+            'scenes': [],
+        }
+        existing_scenes = list(existing_script.get('scenes') or [])
+        if len(existing_scenes) + body.shot_count > 600:
+            raise HTTPException(422, 'Bir bölüm en fazla 600 plan içerebilir.')
+        chars = [get(user, cid, 'character') for cid in pdata.get('character_ids') or []]
+        char_summary = '\n'.join(
+            f"- id={c['id']} | name={c['data']['name']} ({c['data'].get('ingredient_type', 'character')}): {c['data'].get('description', '')}"
+            for c in chars
+        ) or 'No pre-defined characters.'
+        recent_context = '\n'.join(
+            f"- {s.get('scene_group') or ''} / {s.get('title')}: {s.get('narration', '')[:120]}"
+            for s in existing_scenes[-4:]
+        ) or 'Opening block of the episode.'
+        lang = (pdata.get('settings') or {}).get('language', 'tr')
+        lang_name = 'Turkish (Türkçe)' if lang == 'tr' else 'English'
+        style_desc = media.STYLE_PRESETS.get(pdata.get('style', 'realistic_35mm'), media.STYLE_PRESETS['realistic_35mm'])
+        per_shot = max(3, min(15, round(body.duration / max(1, body.shot_count))))
+        hybrid_rule = (
+            "Assign each shot's `shot_mode` smartly for fast TV episode production: "
+            "use `'camera'` for establishing/atmosphere shots, `'dialogue'` for close-up/medium speaking character shots, "
+            "`'action'` for physical movement shots, and `'hero'` only for a climax moment."
+            if body.hybrid
+            else "Set `shot_mode` to `'auto'` for all shots."
+        )
+        prompt = (
+            f"Break this single TV drama scene block into EXACTLY {body.shot_count} continuous shots (~{per_shot}s each, total ~{body.duration}s).\n"
+            f"Episode: {pdata['name']}\n"
+            f"Visual style: {style_desc}\n"
+            f"Scene block title: {body.scene_group}\n"
+            f"Scene beat summary: {body.summary}\n"
+            f"Previous shots for continuity:\n{recent_context}\n"
+            f"Cast & locations (ONLY use these exact character_ids/speaker_id values when applicable):\n{char_summary}\n"
+            f"Write `scene_group`, shot `title`, `narration`, and `caption` in {lang_name}.\n"
+            f"Write `visual_prompt`, `end_prompt`, and `motion_prompt` in vivid cinematic English.\n"
+            f"Use classic film coverage (e.g. establishing -> character A close-up -> character B reverse-shot -> reaction/action).\n"
+            f"{hybrid_rule}\n"
+            "Return JSON matching the schema."
+        )
+        installed = catalog()
+        model_id = (pdata.get('settings') or {}).get('script') or next(
+            (m['id'] for m in installed if m['kind'] == 'script' and m.get('ready')),
+            llm.model_name(),
+        )
+        def _run_llm():
+            try:
+                parsed, _ = llm.generate_json(prompt, GeneratedSceneBlock, model=model_id)
+                return parsed
+            finally:
+                providers.release_script_model(model_id)
+        try:
+            block = await asyncio.to_thread(_run_llm)
+        except Exception as error:
+            raise HTTPException(502, f'Sahne bloğu genişletilemedi: {error}') from error
+
+        valid_cids = set(pdata.get('character_ids') or [])
+        added = []
+        group_name = (block.get('scene_group') or body.scene_group).strip()
+        for raw_shot in block.get('shots') or []:
+            shot = Scene(
+                id=str(uuid.uuid4()),
+                title=raw_shot['title'],
+                scene_group=group_name,
+                shot_mode=raw_shot.get('shot_mode', 'auto'),
+                duration=raw_shot['duration'],
+                narration=raw_shot['narration'],
+                caption=raw_shot['caption'],
+                shot_size=raw_shot.get('shot_size', 'medium'),
+                camera_move=raw_shot.get('camera_move', 'static'),
+                visual_prompt=raw_shot['visual_prompt'],
+                end_prompt=raw_shot.get('end_prompt', ''),
+                motion_prompt=raw_shot.get('motion_prompt', ''),
+                negative_prompt=raw_shot.get('negative_prompt', ''),
+                character_ids=[cid for cid in (raw_shot.get('character_ids') or []) if cid in valid_cids],
+                speaker_id=raw_shot['speaker_id'] if raw_shot.get('speaker_id') in valid_cids else '',
+            ).model_dump()
+            added.append(shot)
+        existing_script['scenes'] = [*existing_scenes, *added]
+        pdata['script'] = existing_script
+        total_dur = int(round(sum(float(s.get('duration') or 5) for s in existing_script['scenes'])))
+        pdata['duration'] = max(pdata.get('duration', 10), min(2700, total_dur))
+        saved = store.save(user, 'project', pdata, identifier, record['revision'])
+        return {'project': saved, 'added_shots': added}
 
     @api.get('/system/status')
     async def get_system(request: Request):

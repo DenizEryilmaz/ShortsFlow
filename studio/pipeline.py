@@ -635,6 +635,29 @@ def _produce_scene_last(store, job, project, scene, index, first, stem, assets, 
     return last, existing_id
 
 
+def _resolve_shot_engine(scene, settings, snapshot=None):
+    """Determine the effective video backend for a shot based on its hybrid shot_mode."""
+    mode = (scene.get('shot_mode') or 'auto').strip().lower()
+    if mode == 'camera':
+        return 'still-motion'
+    if mode == 'dialogue':
+        return 'lipsync'
+    available = {
+        m.get('id')
+        for m in ((snapshot or {}).get('models') or [])
+        if m.get('kind') == 'video' and m.get('ready')
+    }
+    if mode == 'action':
+        if 'ltxv-distilled' in available or not available:
+            return 'ltxv-distilled' if ('ltxv-distilled' in available or settings.get('video') == 'ltxv-distilled') else settings.get('video', 'ltxv-distilled')
+        return settings.get('video', 'still-motion')
+    if mode == 'hero':
+        if 'freevideo-h3' in available:
+            return 'freevideo-h3'
+        return settings.get('video', 'freevideo-h3')
+    return settings.get('video', 'still-motion')
+
+
 def _produce_scene_clip(
     store, job, project, scene, index, first, last, motion_prompt, references, stem, assets, output, snapshot, log,
     *, force=False, unload_before=True,
@@ -651,20 +674,37 @@ def _produce_scene_clip(
         except (ValueError, OSError):
             pass
     seed = _scene_seed(settings, scene, index)
+    engine = _resolve_shot_engine(scene, settings, snapshot)
 
-    def _attach_narration(raw_video):
-        audio_src = None
+    def _resolve_audio_src():
         if scene.get('audio_asset'):
             try:
-                audio_src = resolve_asset(store, job['owner'], scene['audio_asset'])
+                return resolve_asset(store, job['owner'], scene['audio_asset'])
             except ValueError:
-                audio_src = None
-        _mux_clip_audio(raw_video, video, audio_src, log_path=output / 'render.log')
+                return None
+        wav_local = assets / f'{stem}.wav'
+        return wav_local if wav_local.is_file() else None
+
+    def _attach_narration(raw_video):
+        _mux_clip_audio(raw_video, video, _resolve_audio_src(), log_path=output / 'render.log')
         raw_video.unlink(missing_ok=True)
 
     def generate_video():
-        log(f'Sahne {index} · hareket klibi üretiliyor')
-        if settings['video'] == 'ltxv-distilled':
+        log(f'Sahne {index} · hareket klibi üretiliyor ({engine})')
+        if engine == 'lipsync':
+            raw_video = assets / f'{stem}-raw.mp4'
+            providers.lipsync_video(
+                first,
+                _resolve_audio_src(),
+                duration,
+                raw_video,
+                {**settings, 'seed': seed},
+                on_progress=lambda msg: log(f'Sahne {index} · Diyalog · {msg}'),
+                log_path=output / 'render.log',
+                cancel_check=lambda: store.is_cancelled(job['id']),
+            )
+            _attach_narration(raw_video)
+        elif engine == 'ltxv-distilled':
             raw_video = assets / f'{stem}-raw.mp4'
             providers.ltxv_video(
                 motion_prompt,
@@ -678,7 +718,7 @@ def _produce_scene_clip(
                 unload_before=unload_before,
             )
             _attach_narration(raw_video)
-        elif settings['video'] == 'freevideo-h3':
+        elif engine == 'freevideo-h3':
             raw_video = assets / f'{stem}-raw.mp4'
             providers.freevideo(
                 motion_prompt,
@@ -693,17 +733,15 @@ def _produce_scene_clip(
                 unload_before=unload_before,
             )
             # Strip FreeVideo's model-generated audio track (which can speak the motion prompt)
-            # and attach the scene's real Piper narration if available.
+            # and attach the scene's real narration if available.
             _attach_narration(raw_video)
         else:
-            frames = round(duration * 24)
-            w, h = settings['width'], settings['height']
-            providers.run(
-                [
-                    'ffmpeg', '-y', '-loop', '1', '-i', first, '-t', str(duration),
-                    '-vf', f"scale={w * 2}:{h * 2},zoompan=z='1+.045*on/{frames}':d=1:s={w}x{h}:fps=24,format=yuv420p",
-                    '-c:v', 'libx264', '-preset', 'fast', video,
-                ],
+            providers.camera_motion_video(
+                first,
+                duration,
+                video,
+                settings,
+                camera_move=scene.get('camera_move') or 'push',
                 log_path=output / 'render.log',
                 cancel_check=lambda: store.is_cancelled(job['id']),
             )
@@ -1040,43 +1078,49 @@ def render(store, job, output, log):
             'last': None,
         })
 
-    # Phase 2: Generate all First & Last keyframes back-to-back while the image model stays hot in VRAM
+    # Phase 2: Generate all keyframes back-to-back while the image model stays hot in VRAM.
+    # Skip end-frame generation for camera & dialogue shots (cuts keyframe time in half!).
     for item in prepared:
         index, stem, scene = item['index'], item['stem'], item['scene']
+        engine = _resolve_shot_engine(scene, settings, snapshot)
+        item['engine'] = engine
         log(f"Faz 2/3 · Kareler · Sahne {index}/{total} · {scene['title']}")
         first, _ = _produce_scene_first(
             store, job, project, scene, index, item['prompt'], item['references'], stem, assets, snapshot, log
         )
         item['first'] = first
-        last, _ = _produce_scene_last(
-            store, job, project, scene, index, first, stem, assets, snapshot, log
-        )
-        item['last'] = last
+        if engine in ('ltxv-distilled', 'freevideo-h3'):
+            last, _ = _produce_scene_last(
+                store, job, project, scene, index, first, stem, assets, snapshot, log
+            )
+            item['last'] = last
 
-    # Phase 3: Generate all video clips back-to-back (evict image model once before first clip, then stay hot)
-    timings = []
-    evicted_image_model = False
-    for item in prepared:
-        index, stem, scene = item['index'], item['stem'], item['scene']
-        log(f"Faz 3/3 · Video klip · Sahne {index}/{total} · {scene['title']}")
-        should_unload = not evicted_image_model
+    # Phase 3: Group clips by video engine (camera -> lipsync -> ltxv -> freevideo) to prevent VRAM thrashing
+    engine_order = {'still-motion': 0, 'lipsync': 1, 'ltxv-distilled': 2, 'freevideo-h3': 3}
+    ordered_for_gpu = sorted(prepared, key=lambda x: (engine_order.get(x['engine'], 9), x['index']))
+    timings_by_index = {}
+    last_gpu_engine = None
+    for item in ordered_for_gpu:
+        index, stem, scene, engine = item['index'], item['stem'], item['scene'], item['engine']
+        log(f"Faz 3/3 · Video klip ({engine}) · Sahne {index}/{total} · {scene['title']}")
+        needs_gpu_switch = engine in ('ltxv-distilled', 'freevideo-h3') and engine != last_gpu_engine
         video, _ = _produce_scene_clip(
             store, job, project, scene, index, item['first'], item['last'], item['motion_prompt'],
-            item['references'], stem, assets, output, snapshot, log, unload_before=should_unload,
+            item['references'], stem, assets, output, snapshot, log, unload_before=needs_gpu_switch,
         )
-        if should_unload:
-            evicted_image_model = True
-        timings.append(
-            dict(
-                stem=stem,
-                duration=scene['duration'],
-                spoken=item['spoken'],
-                narration=scene['narration'],
-                caption=scene['caption'],
-                source_duration=providers.movie_duration(video),
-            )
+        if engine in ('ltxv-distilled', 'freevideo-h3'):
+            last_gpu_engine = engine
+        timings_by_index[index] = dict(
+            stem=stem,
+            duration=scene['duration'],
+            spoken=item['spoken'],
+            narration=scene['narration'],
+            caption=scene['caption'],
+            source_duration=providers.movie_duration(video),
         )
+        timings = [timings_by_index[k] for k in sorted(timings_by_index)]
         write_json_atomic(str(output / 'stages.json'), timings, ensure_ascii=False, indent=2)
+    timings = [timings_by_index[item['index']] for item in prepared]
     log('Kurgu ve altyazı hazırlanıyor.')
     srt_path = _write_srt(output, timings, sync_captions=bool(settings.get('sync_captions', True)))
     if settings['renderer'] == 'hyperframes':

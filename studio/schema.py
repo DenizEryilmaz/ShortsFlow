@@ -12,14 +12,17 @@ STYLE_IDS = Literal[
     'clay_stopmotion',
     'noir_comic',
     'pixel_retro',
+    'realistic_35mm',
+    'documentary_4k',
 ]
 
 
 LANGUAGE_IDS = Literal['tr', 'en', 'de', 'fr', 'es', 'it', 'ru', 'pt']
-ASPECT_RATIOS = Literal['9:16', '16:9', '1:1']
+ASPECT_RATIOS = Literal['9:16', '16:9', '16:9-480p', '1:1']
 TRANSITIONS = Literal['cut', 'crossfade', 'fade']
 CAPTION_STYLES = Literal['shorts', 'classic', 'minimal', 'none']
 INGREDIENT_TYPES = Literal['character', 'location', 'prop']
+SHOT_MODES = Literal['auto', 'dialogue', 'action', 'camera', 'hero']
 
 
 class Settings(BaseModel):
@@ -39,7 +42,7 @@ class Settings(BaseModel):
     bgm_volume: float = Field(default=0.18, ge=0.0, le=1.0)
     bgm_ducking: bool = True
     seed: int = Field(default=743, ge=0, le=2**32 - 1)
-    width: int = Field(default=448, ge=256, le=768, multiple_of=32)
+    width: int = Field(default=448, ge=256, le=896, multiple_of=32)
     height: int = Field(default=768, ge=256, le=1024, multiple_of=32)
     ram_reserve_gib: float = Field(default=1, ge=.25, le=4)
 
@@ -47,7 +50,9 @@ class Settings(BaseModel):
 class Scene(BaseModel):
     id: str
     title: str = ''
-    duration: float = Field(default=5, ge=2, le=20)
+    scene_group: str = ''
+    shot_mode: SHOT_MODES = 'auto'
+    duration: float = Field(default=5, ge=2, le=30)
     narration: str = Field(default='', max_length=2500)
     caption: str = Field(default='', max_length=160)
     visual_prompt: str = Field(default='', max_length=12000)
@@ -73,7 +78,7 @@ class Scene(BaseModel):
 class EpisodeSummary(BaseModel):
     episode: int = Field(default=1, ge=1)
     title: str = ''
-    duration: float = Field(default=15, ge=4, le=180)
+    duration: float = Field(default=15, ge=4, le=2700)
     summary: str = ''
 
 
@@ -82,13 +87,14 @@ class Script(BaseModel):
     logline: str = ''
     continuity_note: str = ''
     recommended_duration: float | None = None
-    episode_plan: list[EpisodeSummary] = Field(default_factory=list, max_length=12)
-    scenes: list[Scene] = Field(min_length=1, max_length=20)
+    episode_plan: list[EpisodeSummary] = Field(default_factory=list, max_length=24)
+    scenes: list[Scene] = Field(min_length=1, max_length=600)
 
 
 class GeneratedScene(BaseModel):
     title: str = Field(min_length=1, max_length=160)
-    duration: float = Field(ge=2, le=20)
+    duration: float = Field(ge=2, le=30)
+    shot_mode: SHOT_MODES = 'auto'
     narration: str = Field(min_length=1, max_length=2500)
     caption: str = Field(min_length=1, max_length=160)
     shot_size: Literal['establishing', 'wide', 'medium', 'closeup', 'extreme_closeup'] = 'medium'
@@ -101,27 +107,32 @@ class GeneratedScene(BaseModel):
     speaker_id: str = ''
 
 
+class GeneratedSceneBlock(BaseModel):
+    scene_group: str = Field(min_length=1, max_length=160)
+    shots: list[GeneratedScene] = Field(min_length=1, max_length=12)
+
+
 class GeneratedScript(BaseModel):
     title: str = Field(min_length=1, max_length=160)
     logline: str = Field(min_length=1, max_length=1000)
     continuity_note: str = ''
-    recommended_duration: float = Field(ge=4, le=180)
-    episode_plan: list[EpisodeSummary] = Field(default_factory=list, max_length=12)
-    scenes: list[GeneratedScene] = Field(min_length=1, max_length=20)
+    recommended_duration: float = Field(ge=4, le=2700)
+    episode_plan: list[EpisodeSummary] = Field(default_factory=list, max_length=24)
+    scenes: list[GeneratedScene] = Field(min_length=1, max_length=24)
 
 
 class Project(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     brief: str = Field(default='', max_length=16000)
     style: STYLE_IDS = 'animation_2d'
-    duration: int = Field(default=10, ge=4, le=180)
+    duration: int = Field(default=10, ge=4, le=2700)
     series: str = ''
     series_id: str = ''
     episode: int = Field(default=1, ge=1)
     episode_count: int = Field(default=1, ge=1, le=24)
-    scene_count: int = Field(default=0, ge=0, le=20)
+    scene_count: int = Field(default=0, ge=0, le=600)
     production_mode: Literal['staged', 'full'] = 'staged'
-    character_ids: list[str] = Field(default_factory=list, max_length=12)
+    character_ids: list[str] = Field(default_factory=list, max_length=20)
     settings: Settings = Field(default_factory=Settings)
     script: Script | None = None
     prompt_template: str = Field(default='', max_length=24000)
@@ -136,7 +147,7 @@ class Series(BaseModel):
     continuity_note: str = Field(default='', max_length=4000)
     cover_asset: str = ''
     character_ids: list[str] = Field(default_factory=list, max_length=20)
-    episode_duration: int = Field(default=30, ge=4, le=180)
+    episode_duration: int = Field(default=30, ge=4, le=2700)
     episode_count: int = Field(default=1, ge=1, le=24)
     defaults: Settings = Field(default_factory=Settings)
 
